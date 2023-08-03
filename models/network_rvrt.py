@@ -124,6 +124,7 @@ class SpyNet(nn.Module):
     def process(self, ref, supp, w, h, w_floor, h_floor):
         flow_list = []
 
+        print("[a] ref[0].shape: ",ref[0].shape)
         ref = [self.preprocess(ref)]
         supp = [self.preprocess(supp)]
 
@@ -131,10 +132,12 @@ class SpyNet(nn.Module):
             ref.insert(0, F.avg_pool2d(input=ref[0], kernel_size=2, stride=2, count_include_pad=False))
             supp.insert(0, F.avg_pool2d(input=supp[0], kernel_size=2, stride=2, count_include_pad=False))
 
+        print("ref[0].shape: ",ref[0].shape)
         flow = ref[0].new_zeros(
             [ref[0].size(0), 2,
              int(math.floor(ref[0].size(2) / 2.0)),
              int(math.floor(ref[0].size(3) / 2.0))])
+        print(flow.shape)
 
         for level in range(len(ref)):
             upsampled_flow = F.interpolate(input=flow, scale_factor=2, mode='bilinear', align_corners=True) * 2.0
@@ -667,7 +670,8 @@ class RSTBWithInputConv(nn.Module):
          **kwarg: Args for RSTB.
     """
 
-    def __init__(self, in_channels=3, kernel_size=(1, 3, 3), stride=1, groups=1, num_blocks=2, **kwargs):
+    def __init__(self, in_channels=3, kernel_size=(1, 3, 3), stride=1,
+                 groups=1, num_blocks=2, **kwargs):
         super().__init__()
 
         main = []
@@ -882,7 +886,8 @@ class RVRT(nn.Module):
                                                      num_heads=num_heads[1],
                                                      window_size=window_size,
                                                      mlp_ratio=mlp_ratio,
-                                                     qkv_bias=qkv_bias, qk_scale=qk_scale,
+                                                     qkv_bias=qkv_bias,
+                qk_scale=qk_scale,
                                                      norm_layer=norm_layer,
                                                      use_checkpoint_attn=[use_checkpoint_attns[i]],
                                                      use_checkpoint_ffn=[use_checkpoint_ffns[i]]
@@ -990,6 +995,7 @@ class RVRT(nn.Module):
             updated_flows[f'{module_name}_n1'] = []
             updated_flows[f'{module_name}_n2'] = []
 
+        # print("feats['shallow'][0].shape: ",feats['shallow'][0].shape)
         feat_prop = torch.zeros_like(feats['shallow'][0])
         if self.cpu_cache:
             feat_prop = feat_prop.cuda()
@@ -1058,7 +1064,9 @@ class RVRT(nn.Module):
             if self.cpu_cache:
                 feat = [f.cuda() for f in feat]
 
+            # print("feat[0].shape: ",feat[0].shape)
             feat_prop = feat_prop + self.backbone[module_name](torch.cat(feat, dim=2))
+            # print("feat_prop.shape: ",feat_prop.shape)
             feats[module_name].append(feat_prop)
 
             if self.cpu_cache:
@@ -1084,11 +1092,13 @@ class RVRT(nn.Module):
 
         """
 
+
         feats['shallow'] = torch.cat(feats['shallow'], 1)
         feats['backward_1'] = torch.cat(feats['backward_1'], 1)
         feats['forward_1'] = torch.cat(feats['forward_1'], 1)
         feats['backward_2'] = torch.cat(feats['backward_2'], 1)
         feats['forward_2'] = torch.cat(feats['forward_2'], 1)
+        # print([(k,feats[k].shape) for k in feats])
 
         if self.cpu_cache:
             outputs = []
@@ -1137,12 +1147,15 @@ class RVRT(nn.Module):
         # check whether the input is an extended sequence
         self.check_if_mirror_extended(lqs)
 
+        # print("clip_size: ",self.clip_size)
         # shallow feature extractions
         feats = {}
         if self.cpu_cache:
             feats['shallow'] = []
+            print("lqs.shape: ",lqs.shape)
             for i in range(0, t // self.clip_size):
                 feat = self.feat_extract(lqs[:, i * self.clip_size:(i + 1) * self.clip_size, :, :, :]).cpu()
+                print("i, feat.shape: ",i, feat.shape)
                 feats['shallow'].append(feat)
             flows_forward, flows_backward = self.compute_flow(lqs_downsample)
 

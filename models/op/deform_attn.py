@@ -142,8 +142,9 @@ class DeformAttn(nn.Module):
     def forward(self, q, k, v, offset):
         q = self.proj_q(q)
         kv = torch.cat([self.proj_k(k), self.proj_v(v)], 2)
-        v = deform_attn(q, kv, offset, self.kernel_h, self.kernel_w, self.stride, self.padding, self.dilation,
-                                     self.attention_heads, self.deformable_groups, self.clip_size)
+        v = deform_attn(q, kv, offset, self.kernel_h, self.kernel_w, self.stride,
+                        self.padding, self.dilation, self.attention_heads,
+                        self.deformable_groups, self.clip_size)
         v =  v + self.mlp(v)
         return v
 
@@ -185,7 +186,8 @@ class DeformAttnPack(DeformAttn):
 
         q = self.proj_q(q)
         kv = torch.cat([self.proj_k(k), self.proj_v(v)], 2)
-        v = deform_attn(q, kv, offset, self.kernel_h, self.kernel_w, self.stride, self.padding, self.dilation,
-                                     self.attention_heads, self.deformable_groups, self.clip_size)
+        v = deform_attn(q, kv, offset, self.kernel_h, self.kernel_w, self.stride,
+                        self.padding, self.dilation,
+                        self.attention_heads, self.deformable_groups, self.clip_size)
         v =  v + self.mlp(v)
         return v
