@@ -159,11 +159,11 @@ def main():
     results = pd.DataFrame(results)
     print(results)
     print(results.columns)
-    print(results[['timer_fwd','trainable_params']])
-    print(results[['timer_fwd','timer_bwd','task']])
-    print(results[['alloc_fwd','alloc_bwd','res_fwd','res_bwd','task']])
-    print(results[['fwdbwd_mem','trainable_params','macs','task']])
-    results.to_csv("bench_results.csv",index=False)
+    print(results[['timer_fwd_nograd','trainable_params',"alloc_fwd_nograd"]])
+    # print(results[['timer_fwd','timer_bwd','task']])
+    # print(results[['alloc_fwd','alloc_bwd','res_fwd','res_bwd','task']])
+    # print(results[['fwdbwd_mem','trainable_params','macs','task']])
+    # results.to_csv("bench_results.csv",index=False)
 
 
 if __name__ == '__main__':

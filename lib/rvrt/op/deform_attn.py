@@ -112,7 +112,8 @@ class DeformAttn(nn.Module):
                  attention_window=[3, 3],
                  deformable_groups=12,
                  attention_heads=12,
-                 clip_size=1):
+                 clip_size=1,
+                 use_offset=True):
         super(DeformAttn, self).__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
@@ -125,6 +126,7 @@ class DeformAttn(nn.Module):
         self.stride = 1
         self.padding = self.kernel_h//2
         self.dilation = 1
+        self.use_offset = use_offset
 
         self.proj_q = nn.Sequential(Rearrange('n d c h w -> n d h w c'),
                                     nn.Linear(self.in_channels, self.in_channels),
@@ -140,6 +142,8 @@ class DeformAttn(nn.Module):
                                  Rearrange('n d h w c -> n d c h w'))
 
     def forward(self, q, k, v, offset):
+        if not(self.use_offset):
+            offset = offset * 0.
         q = self.proj_q(q)
         kv = torch.cat([self.proj_k(k), self.proj_v(v)], 2)
         v = deform_attn(q, kv, offset, self.kernel_h, self.kernel_w, self.stride,

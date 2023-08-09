@@ -784,7 +784,6 @@ void modulated_deformable_im2col_cuda(
         const scalar_t *data_offset_ = data_offset.data_ptr<scalar_t>();
         const scalar_t *data_mask_ = data_mask.data_ptr<scalar_t>();
         scalar_t *data_col_ = data_col.data_ptr<scalar_t>();
-
         modulated_deformable_im2col_gpu_kernel<<<GET_BLOCKS(num_kernels), CUDA_NUM_THREADS, 0, at::cuda::getCurrentCUDAStream()>>>(
             num_kernels, data_im_, data_offset_, data_mask_, height_im, width_im, kernel_h, kenerl_w,
             pad_h, pad_w, stride_h, stride_w, dilation_h, dilation_w, channel_per_deformable_group,

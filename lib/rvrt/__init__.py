@@ -1,5 +1,6 @@
 
 # -- api --
+import importlib
 from . import original
 
 # -- lightning default --
@@ -7,6 +8,7 @@ from . import lightning
 
 from .original import extract_config # set input params
 from .original import extract_config as extract_model_config # set input params
+# from . import verson1
 
 # -- for loading model --
 from .utils.misc import optional
@@ -15,7 +17,14 @@ from .utils.misc import optional
 # from .augmented import extract_config as extract_model_config # set input params
 
 def load_model(cfg):
-    return original.load_model(cfg)
+    mtype = optional(cfg,'model_type','rvrt')
+    if mtype in ["rvrt","original"]:
+        return original.load_model(cfg)
+    else:
+        version = int(mtype.split("rvrt")[1])
+        pkg_name = "rvrt.version%d"%version
+        pkg = importlib.import_module(pkg_name)
+        return pkg.load_model(cfg)
 #
 # MISC
 #

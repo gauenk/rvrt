@@ -19,7 +19,35 @@ from operator import mul
 from einops import rearrange
 from einops.layers.torch import Rearrange
 from ..op.deform_attn import deform_attn, DeformAttnPack
+from stnls.pytorch.nn import NonLocalAttentionStack_MatchDeform
+# from stnls.pytorch.nn import NonLocalAttentionStack,NonLocalAttention
+from easydict import EasyDict as edict
 
+class NonLocalWrap(nn.Module):
+    def __init__(self,attn):
+        super().__init__()
+        self.attn = attn
+
+        # def q, k, v, v_prop_warped, flows, return_updateflow
+
+    def forward(self,q,k,v,v_prop_warp,flow,return_updatedflow):
+        # feat_q, feat_k, feat_prop,
+        # [feat_prop_warped1, feat_prop_warped2],
+        # [flow_n1, flow_n2], True)
+        # print("q.shape: ",q.shape)
+        # print("k.shape: ",k.shape)
+        # print("v.shape: ",v.shape)
+        flows = edict({"fflow":flow[0],"bflow":flow[1]})
+        self.attn(q,k,v,flows)
+        print(v_prop_warp[0].shape)
+        print(flow[0].shape)
+        print(forward)
+        exit()
+        pass
+    # (feat_q, feat_k, feat_prop,
+    #  [feat_prop_warped1, feat_prop_warped2],
+    #  [flow_n1, flow_n2],
+    #  True)
 
 def flow_warp(x, flow, interp_mode='bilinear', padding_mode='zeros', align_corners=True):
     """Warp an image or feature map with optical flow.
@@ -246,9 +274,6 @@ class GuidedDeformAttnPack(DeformAttnPack):
         offset1 = offset1 + flows[0].flip(2).repeat(1, 1, offset1.size(2) // 2, 1, 1)
         offset2 = offset2 + flows[1].flip(2).repeat(1, 1, offset2.size(2) // 2, 1, 1)
         offset = torch.cat([offset1, offset2], dim=2).flatten(0, 1)
-        # offset1 = offset1*0.
-        # offset2 = offset2*0.
-        # offset = offset * 0. # TODO: DELETE ME; testing only.
 
         b, t, c, h, w = offset1.shape
         q = self.proj_q(q).view(b * t, 1, self.proj_channels, h, w)
@@ -745,6 +770,24 @@ class Upsample(nn.Sequential):
             raise ValueError(f'scale {scale} is not supported. ' 'Supported scales: 2^n and 3.')
         super(Upsample, self).__init__(*m)
 
+def get_nla_params(edim):
+    ps = 7
+    stride0 = 4
+    nheads = 12
+    dilation = 1
+    k_agg = 10
+    k = 10
+    name = "nls"
+    attn_cfg = edict({"embed_dim":16,"nheads":nheads,"inner_mult":2,
+                      "use_norm_layer":True,
+                      "use_attn_flow":True,"use_state_update":False,"ps":ps,
+                      "search_name":name,"stride0":4,"dilation":dilation,
+                      "k_agg":k_agg,"k":k})
+    search_cfg = attn_cfg
+    normz_cfg = attn_cfg
+    agg_cfg = {}
+    return attn_cfg,search_cfg,normz_cfg,agg_cfg
+
 
 class RVRT(nn.Module):
     """ Recurrent Video Restoration Transformer with Guided Deformable Attention (RVRT).
@@ -801,8 +844,7 @@ class RVRT(nn.Module):
                  use_checkpoint_ffn=False,
                  no_checkpoint_attn_blocks=[],
                  no_checkpoint_ffn_blocks=[],
-                 cpu_cache_length=100,
-                 use_offset=True
+                 cpu_cache_length=100
                  ):
 
         super().__init__()
@@ -812,7 +854,6 @@ class RVRT(nn.Module):
         use_checkpoint_attns = [False if i in no_checkpoint_attn_blocks else use_checkpoint_attn for i in range(100)]
         use_checkpoint_ffns = [False if i in no_checkpoint_ffn_blocks else use_checkpoint_ffn for i in range(100)]
         self.cpu_cache_length = cpu_cache_length
-        self.times = {}
 
         # optical flow
         self.spynet = SpyNet(spynet_path)
@@ -871,14 +912,16 @@ class RVRT(nn.Module):
         modules = ['backward_1', 'forward_1', 'backward_2', 'forward_2']
         for i, module in enumerate(modules):
             # deformable attention
-            self.deform_align[module] = GuidedDeformAttnPack(embed_dims[1],
-                                                             embed_dims[1],
-                                                             attention_window=attention_window,
-                                                             attention_heads=attention_heads,
-                                                             deformable_groups=deformable_groups,
-                                                             clip_size=clip_size,
-                                                             max_residue_magnitude=max_residue_magnitude,
-                                                             use_offset=use_offset)
+            edim = embed_dims[1]
+            nla_args = get_nla_params(edim)
+            self.deform_align[module] = NonLocalWrap(NonLocalAttentionStack_MatchDeform(*nla_args))
+            # GuidedDeformAttnPack(embed_dims[1],
+            #                                                  embed_dims[1],
+            #                                                  attention_window=attention_window,
+            #                                                  attention_heads=attention_heads,
+            #                                                  deformable_groups=deformable_groups,
+            #                                                  clip_size=clip_size,
+            #                                                  max_residue_magnitude=max_residue_magnitude)
 
             # feature propagation
             self.backbone[module] = RSTBWithInputConv(
@@ -1049,15 +1092,16 @@ class RVRT(nn.Module):
                     .view(n, feat_prop.shape[1], feat_prop.shape[2], h, w)
 
                 if '_1' in module_name:
-                    feat_prop, flow_n1, flow_n2 = self.deform_align[module_name](feat_q, feat_k, feat_prop,
-                                                                                 [feat_prop_warped1, feat_prop_warped2],
-                                                                                 [flow_n1, flow_n2],
-                                                                                 True)
+                    feat_prop, flow_n1, flow_n2 = self.deform_align[module_name](
+                        feat_q, feat_k, feat_prop,
+                        [feat_prop_warped1, feat_prop_warped2],
+                        [flow_n1, flow_n2], True)
                     updated_flows[f'{module_name}_n1'].append(flow_n1)
                     updated_flows[f'{module_name}_n2'].append(flow_n2)
                 else:
                     feat_prop = self.deform_align[module_name](feat_q, feat_k, feat_prop,
-                                                               [feat_prop_warped1, feat_prop_warped2],
+                                                               [feat_prop_warped1,
+                                                                feat_prop_warped2],
                                                                [flow_n1, flow_n2],
                                                                False)
 
@@ -1132,7 +1176,7 @@ class RVRT(nn.Module):
 
             return hr
 
-    def forward(self, lqs, flows=None):
+    def forward(self, lqs):
         """Forward function for RVRT.
 
         Args:

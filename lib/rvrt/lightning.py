@@ -92,7 +92,7 @@ def lit_pairs():
              "sgd_momentum":0.1,"sgd_dampening":0.1,
              "coswr_T0":-1,"coswr_Tmult":1,"coswr_eta_min":1e-9,
              "step_lr_multisteps":"30-50",
-             "spynet_global_step":-1,"limit_train_batches":-1,"dd_in":3,
+             "spynet_global_step":-1,"limit_train_batches":-1,"dd_in":4,
              "fill_loss":False,"fill_loss_weight":1.,"fill_loss_n":10,
              "fill_loss_scale_min":.01,"fill_loss_scale_max":0.05}
     return pairs
@@ -128,7 +128,8 @@ class LitModel(pl.LightningModule):
     def forward(self,vid,flows=None):
         if flows is None:
             flows = flow.orun(vid,self.flow,ftype=self.flow_method)
-        deno = self.net(vid,flows=flows)
+        # print(vid.shape)
+        deno = self.net(vid)#,flows=flows)
         return deno
 
     def sample_noisy(self,batch):
