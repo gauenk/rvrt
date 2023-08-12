@@ -150,15 +150,42 @@ class LitModel(pl.LightningModule):
         if self.current_epoch >= self.flow_epoch:
             self.flow = True
 
+    def get_params(self):
+
+        #
+        # -- basic parameters --
+        #
+
+        params = [{"params":self.parameters()}]
+        if not(self.uses_spynet()):
+            return params
+        #
+        # -- include spynet with separate learning rate --
+        #
+
+        # -- all parameters except spynet --
+        named_params = self.net.named_parameters()
+        base_params = list(filter(lambda kv: not("spynet" in kv[0]), named_params))
+        base_params = [kv[1] for kv in base_params]
+        # print(base_params[0])
+
+        # -- spynet params --
+        spynet_params = self.net.spynet.parameters()
+        # print(list(spynet_params)[0])
+        params = [{"params":base_params},
+                  {'params': spynet_params, 'lr': self.lr_init/10}]
+        return params
+
     def configure_optimizers(self):
+        params = self.get_params()
         if self.optim_name == "adam":
-            optim = th.optim.Adam(self.parameters(),lr=self.lr_init,
+            optim = th.optim.Adam(params,lr=self.lr_init,
                                   weight_decay=self.weight_decay)
         elif self.optim_name == "adamw":
-            optim = th.optim.AdamW(self.parameters(),lr=self.lr_init,
+            optim = th.optim.AdamW(params,lr=self.lr_init,
                                    weight_decay=self.weight_decay)
         elif self.optim_name == "sgd":
-            optim = th.optim.SGD(self.parameters(),lr=self.lr_init,
+            optim = th.optim.SGD(params,lr=self.lr_init,
                                  weight_decay=self.weight_decay,
                                  momentum=self.sgd_momentum,
                                  dampening=self.sgd_dampening)
@@ -214,10 +241,14 @@ class LitModel(pl.LightningModule):
 
     def training_step(self, batch, batch_idx):
 
-        # -- check spynet --
+        # -- set spynet to training --
         if self.global_step == self.spynet_global_step:
-            if hasattr(self.net,"spynet"):
-                self.net.spynet.train()
+            if self.uses_spynet(): self.net.spynet.train()
+        if self.global_step == 0:
+            if self.uses_spynet(): self.net.spynet.eval()
+        # if self.global_step == self.spynet_global_step:
+        #     if hasattr(self.net,"spynet"):
+        #         self.net.spynet.train()
 
         # -- sample noise from simulator --
         self.sample_noisy(batch)
@@ -256,7 +287,10 @@ class LitModel(pl.LightningModule):
         get_psnr = lambda x,y: np.mean(compute_psnrs(x,y,div=1.)).item()
         val_psnr = get_psnr(denos,cleans)
         fill_psnr = get_psnr(fills,cleans) if self.fill_loss else -1
-        lr = self.optimizers()._optimizer.param_groups[-1]['lr']
+        lr = self.optimizers()._optimizer.param_groups[0]['lr']
+        lr1 = -1
+        if len(self.optimizers()._optimizer.param_groups) > 1:
+            lr1 = self.optimizers()._optimizer.param_groups[1]['lr']
         # val_ssim = np.mean(compute_ssims(denos,cleans,div=1.)).item() # too slow.
         self.log("train_loss", loss.item(), on_step=True,
                  on_epoch=False, batch_size=self.batch_size, sync_dist=False)
@@ -267,6 +301,9 @@ class LitModel(pl.LightningModule):
                      on_epoch=False, batch_size=self.batch_size, sync_dist=False)
         self.log("lr", lr, on_step=True,
                  on_epoch=False, batch_size=self.batch_size, sync_dist=False)
+        if lr1 >= 0:
+            self.log("lr1", lr1, on_step=True,
+                     on_epoch=False, batch_size=self.batch_size, sync_dist=False)
         self.log("global_step", self.global_step, on_step=True,
                  on_epoch=False, batch_size=self.batch_size, sync_dist=False)
         # self.log("train_ssim", val_ssim, on_step=True,
@@ -471,6 +508,9 @@ class LitModel(pl.LightningModule):
         results.test_mem_res = mem_res
         results.test_index = index#.cpu().numpy().item()
         return results
+
+    def uses_spynet(self):
+        return hasattr(self.net,"spynet") and not(self.net.spynet is None)
 
     def num_steps(self) -> int:
         """Get number of steps"""
