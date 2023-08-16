@@ -197,6 +197,7 @@ class GuidedDeformAttnPack(DeformAttnPack):
 
     def __init__(self, *args, **kwargs):
         self.max_residue_magnitude = kwargs.pop('max_residue_magnitude', 10)
+        self.offset_type = kwargs.pop('offset_type', "default")
 
         super(GuidedDeformAttnPack, self).__init__(*args, **kwargs)
 
@@ -243,8 +244,15 @@ class GuidedDeformAttnPack(DeformAttnPack):
     def forward(self, q, k, v, v_prop_warped, flows, return_updateflow):
         offset1, offset2 = torch.chunk(self.max_residue_magnitude * torch.tanh(
             self.conv_offset(torch.cat([q] + v_prop_warped + flows, 2).transpose(1, 2)).transpose(1, 2)), 2, dim=2)
-        offset1 = offset1 + flows[0].flip(2).repeat(1, 1, offset1.size(2) // 2, 1, 1)
-        offset2 = offset2 + flows[1].flip(2).repeat(1, 1, offset2.size(2) // 2, 1, 1)
+        if self.offset_type == "default":
+            offset1 = offset1 + flows[0].flip(2).repeat(1, 1, offset1.size(2) // 2, 1, 1)
+            offset2 = offset2 + flows[1].flip(2).repeat(1, 1, offset2.size(2) // 2, 1, 1)
+        else:
+            offset1 = self.max_residue_magnitude * torch.randn_like(offset1).clamp(-1,1)
+            offset2 = self.max_residue_magnitude * torch.randn_like(offset1).clamp(-1,1)
+            offset1 = flows[0].flip(2).repeat(1, 1, offset1.size(2) // 2, 1, 1)
+            offset2 = flows[1].flip(2).repeat(1, 1, offset2.size(2) // 2, 1, 1)
+        # print(self.max_residue_magnitude)
         offset = torch.cat([offset1, offset2], dim=2).flatten(0, 1)
         # offset1 = offset1*0.
         # offset2 = offset2*0.
@@ -253,8 +261,10 @@ class GuidedDeformAttnPack(DeformAttnPack):
         b, t, c, h, w = offset1.shape
         q = self.proj_q(q).view(b * t, 1, self.proj_channels, h, w)
         kv = torch.cat([self.proj_k(k), self.proj_v(v)], 2)
-        v = deform_attn(q, kv, offset, self.kernel_h, self.kernel_w, self.stride, self.padding, self.dilation,
-                        self.attention_heads, self.deformable_groups, self.clip_size).view(b, t, self.proj_channels, h,
+        v = deform_attn(q, kv, offset, self.kernel_h, self.kernel_w, self.stride,
+                        self.padding, self.dilation,
+                        self.attention_heads, self.deformable_groups,
+                        self.clip_size).view(b, t, self.proj_channels, h,
                                                                                            w)
         v = self.proj(v)
         v = v + self.mlp(v)
@@ -802,7 +812,7 @@ class RVRT(nn.Module):
                  no_checkpoint_attn_blocks=[],
                  no_checkpoint_ffn_blocks=[],
                  cpu_cache_length=100,
-                 use_offset=True
+                 offset_type="default"
                  ):
 
         super().__init__()
@@ -878,7 +888,7 @@ class RVRT(nn.Module):
                                                              deformable_groups=deformable_groups,
                                                              clip_size=clip_size,
                                                              max_residue_magnitude=max_residue_magnitude,
-                                                             use_offset=use_offset)
+                                                             offset_type=offset_type)
 
             # feature propagation
             self.backbone[module] = RSTBWithInputConv(
@@ -1049,17 +1059,17 @@ class RVRT(nn.Module):
                     .view(n, feat_prop.shape[1], feat_prop.shape[2], h, w)
 
                 if '_1' in module_name:
-                    feat_prop, flow_n1, flow_n2 = self.deform_align[module_name](feat_q, feat_k, feat_prop,
-                                                                                 [feat_prop_warped1, feat_prop_warped2],
-                                                                                 [flow_n1, flow_n2],
-                                                                                 True)
+                    feat_prop, flow_n1, flow_n2 = self.deform_align[module_name](
+                        feat_q, feat_k, feat_prop,
+                        [feat_prop_warped1, feat_prop_warped2],
+                        [flow_n1, flow_n2], True)
                     updated_flows[f'{module_name}_n1'].append(flow_n1)
                     updated_flows[f'{module_name}_n2'].append(flow_n2)
                 else:
-                    feat_prop = self.deform_align[module_name](feat_q, feat_k, feat_prop,
-                                                               [feat_prop_warped1, feat_prop_warped2],
-                                                               [flow_n1, flow_n2],
-                                                               False)
+                    feat_prop = self.deform_align[module_name](
+                        feat_q, feat_k, feat_prop,
+                        [feat_prop_warped1, feat_prop_warped2],
+                        [flow_n1, flow_n2], False)
 
             if 'backward' in module_name:
                 feat = [feats[k][idx_c].flip(1) for k in feats if k not in [module_name]] + [feat_prop]
