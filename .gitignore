@@ -7,6 +7,14 @@ dispatch/*
 .cache_io
 output
 wandb/*
+dispatch/*
+*txt
+./slurm*
+.*
+.aaai23
+.tmp
+.cache_io
+output
 build/*
 cmake/*
 data/*
