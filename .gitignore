@@ -1,3 +1,12 @@
+*txt
+./slurm*
+./reqs/*~
+.*
+dispatch/*
+.tmp
+.cache_io
+output
+wandb/*
 dispatch/*
 *txt
 ./slurm*

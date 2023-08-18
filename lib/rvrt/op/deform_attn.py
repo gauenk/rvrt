@@ -142,8 +142,8 @@ class DeformAttn(nn.Module):
                                  Rearrange('n d h w c -> n d c h w'))
 
     def forward(self, q, k, v, offset):
-        if not(self.use_offset):
-            offset = offset * 0.
+        # if not(self.use_offset):
+        #     offset = offset * 0.
         q = self.proj_q(q)
         kv = torch.cat([self.proj_k(k), self.proj_v(v)], 2)
         v = deform_attn(q, kv, offset, self.kernel_h, self.kernel_w, self.stride,
@@ -187,7 +187,7 @@ class DeformAttnPack(DeformAttn):
         out = self.conv_offset(torch.cat([q.flatten(1, 2), k.flatten(1, 2)], 1))
         o1, o2 = torch.chunk(out, 2, dim=1)
         offset = torch.cat((o1, o2), dim=1)
-
+        # if not(self.use_offset): offset = offset * 0.
         q = self.proj_q(q)
         kv = torch.cat([self.proj_k(k), self.proj_v(v)], 2)
         v = deform_attn(q, kv, offset, self.kernel_h, self.kernel_w, self.stride,
