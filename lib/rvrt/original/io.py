@@ -20,7 +20,9 @@ def load_model(cfg):
     device = econfig.optional(cfg,"device","cuda")
     local_pairs = {"io":io_pairs(),
                    "imodel":{"task":"denoising","spynet_path":None,
-                             "offset_type":"default"}}
+                             "offset_type":"default",
+                             "fixed_offset_max":2.5,
+                             "attention_window":[3,3]}}
     cfgs = econfig.extract_dict_of_pairs(cfg,local_pairs,restrict=True)
     cfg = dcat(cfg,econfig.flatten(cfgs)) # update cfg
     if econfig.is_init: return
@@ -106,9 +108,10 @@ def get_model(cfg):
                     window_size=[2, 8, 8], num_blocks=[1, 2, 1],
                     depths=[2, 2, 2], embed_dims=[192, 192, 192], num_heads=[6, 6, 6],
                     inputconv_groups=[1, 3, 4, 6, 8, 4], deformable_groups=12,
-                    attention_heads=12, attention_window=[3, 3],
+                    attention_heads=12, attention_window=cfg.attention_window,
                     nonblind_denoising=True, cpu_cache_length=100,
-                    spynet_path=spynet_path,offset_type=cfg.offset_type)
+                    spynet_path=spynet_path,offset_type=cfg.offset_type,
+                    fixed_offset_max=cfg.fixed_offset_max)
         datasets = ['Set8', 'DAVIS-test']
         args.scale = 1
         args.window_size = [2,8,8]

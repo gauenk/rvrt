@@ -8,6 +8,7 @@ import os
 import warnings
 import math
 import torch
+import torch as th
 import torch.nn as nn
 import torchvision
 import torch.nn.functional as F
@@ -179,6 +180,19 @@ class SpyNet(nn.Module):
         return flow_list[0] if len(flow_list) == 1 else flow_list
 
 
+def get_fixed_offsets(ws2,ngroups,fixed_offset_max,shape,device):
+    ws = int(math.sqrt(ws2))
+    fixed = th.arange(ws) - ws//2
+    fixed = fixed * fixed_offset_max
+    mesh = th.stack(th.meshgrid(fixed,fixed),0).flatten(1,2)
+    mesh = mesh.T.flatten()
+    mesh = mesh.repeat(ngroups).flatten()
+    nlocs = len(mesh)
+    b,n,_,nH,nW = shape
+    mesh = mesh.reshape((1,1,nlocs,1,1)).float().to(device)
+    mesh = mesh.repeat((b,n,1,nH,nW))
+    return mesh,mesh
+
 class GuidedDeformAttnPack(DeformAttnPack):
     """Guided deformable attention module.
 
@@ -198,6 +212,7 @@ class GuidedDeformAttnPack(DeformAttnPack):
     def __init__(self, *args, **kwargs):
         self.max_residue_magnitude = kwargs.pop('max_residue_magnitude', 10)
         self.offset_type = kwargs.pop('offset_type', "default")
+        self.fixed_offset_max = kwargs.pop('fixed_offset_max', 2.5)
 
         super(GuidedDeformAttnPack, self).__init__(*args, **kwargs)
 
@@ -236,24 +251,45 @@ class GuidedDeformAttnPack(DeformAttnPack):
                                  Mlp(self.in_channels, self.in_channels * 2, self.in_channels),
                                  Rearrange('n d h w c -> n d c h w'))
 
+        # -- create shell for hooks --
+        self.o1_offset_shell = nn.Identity()
+        self.o2_offset_shell = nn.Identity()
+
     def init_offset(self):
         if hasattr(self, 'conv_offset'):
             self.conv_offset[-1].weight.data.zero_()
             self.conv_offset[-1].bias.data.zero_()
 
     def forward(self, q, k, v, v_prop_warped, flows, return_updateflow):
-        offset1, offset2 = torch.chunk(self.max_residue_magnitude * torch.tanh(
-            self.conv_offset(torch.cat([q] + v_prop_warped + flows, 2).transpose(1, 2)).transpose(1, 2)), 2, dim=2)
         if self.offset_type == "default":
-            offset1 = offset1 + flows[0].flip(2).repeat(1, 1, offset1.size(2) // 2, 1, 1)
-            offset2 = offset2 + flows[1].flip(2).repeat(1, 1, offset2.size(2) // 2, 1, 1)
+            offset1, offset2 = torch.chunk(self.max_residue_magnitude * torch.tanh(
+                self.conv_offset(torch.cat([q] + v_prop_warped + flows, 2).transpose(1, 2)).transpose(1, 2)), 2, dim=2)
+            # offset1 = offset1 + flows[0].flip(2).repeat(1, 1, offset1.size(2) // 2, 1, 1)
+            # offset2 = offset2 + flows[1].flip(2).repeat(1, 1, offset2.size(2) // 2, 1, 1)
+        elif self.offset_type == "fixed":
+            offset1,offset2 = get_fixed_offsets(self.attn_size,
+                                                self.deformable_groups,
+                                                self.fixed_offset_max,
+                                                q.shape,q.device)
         else:
             offset1 = self.max_residue_magnitude * torch.randn_like(offset1).clamp(-1,1)
             offset2 = self.max_residue_magnitude * torch.randn_like(offset1).clamp(-1,1)
-            offset1 = flows[0].flip(2).repeat(1, 1, offset1.size(2) // 2, 1, 1)
-            offset2 = flows[1].flip(2).repeat(1, 1, offset2.size(2) // 2, 1, 1)
+            # offset1 = flows[0].flip(2).repeat(1, 1, offset1.size(2) // 2, 1, 1)
+            # offset2 = flows[1].flip(2).repeat(1, 1, offset2.size(2) // 2, 1, 1)
         # print(self.max_residue_magnitude)
+
+        # -- added for hooks --
+        offset1 = self.o1_offset_shell(offset1)
+        offset2 = self.o2_offset_shell(offset2)
+
+        # -- add optical flow --
+        if self.offset_type in ["default","fixed"]:
+            offset1 = offset1 + flows[0].flip(2).repeat(1, 1, offset1.size(2) // 2, 1, 1)
+            offset2 = offset2 + flows[1].flip(2).repeat(1, 1, offset2.size(2) // 2, 1, 1)
+
+        # -- cat --
         offset = torch.cat([offset1, offset2], dim=2).flatten(0, 1)
+        # print(offset.shape,self.clip_size,self.deformable_groups,self.attn_size)
         # offset1 = offset1*0.
         # offset2 = offset2*0.
         # offset = offset * 0. # TODO: DELETE ME; testing only.
@@ -812,7 +848,8 @@ class RVRT(nn.Module):
                  no_checkpoint_attn_blocks=[],
                  no_checkpoint_ffn_blocks=[],
                  cpu_cache_length=100,
-                 offset_type="default"
+                 offset_type="default",
+                 fixed_offset_max=2.5,
                  ):
 
         super().__init__()
@@ -888,7 +925,8 @@ class RVRT(nn.Module):
                                                              deformable_groups=deformable_groups,
                                                              clip_size=clip_size,
                                                              max_residue_magnitude=max_residue_magnitude,
-                                                             offset_type=offset_type)
+                                                             offset_type=offset_type,
+                                                             fixed_offset_max=fixed_offset_max)
 
             # feature propagation
             self.backbone[module] = RSTBWithInputConv(
