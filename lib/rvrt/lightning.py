@@ -362,7 +362,7 @@ class LitModel(pl.LightningModule):
 
         # -- report loss --
         eps = 1e-3
-        loss = th.sqrt(th.mean((clean - fill)**2) + eps**2)
+        loss = th.sqrt(th.mean((clean - deno)**2) + eps**2)
         # loss = th.mean((clean - deno)**2)
 
         # -- forward fill --
