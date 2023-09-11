@@ -193,6 +193,218 @@ def get_fixed_offsets(ws2,ngroups,fixed_offset_max,shape,device):
     mesh = mesh.repeat((b,n,1,nH,nW))
     return mesh,mesh
 
+def remove_time(dists,inds,t):
+
+    # print(dists.shape)
+    dshape = dists.shape
+    ishape = inds.shape
+
+    # -- filter --
+    dists = dists.view(-1,1)
+    inds = inds.view(-1,3)
+    args = th.where(inds[...,0] != t)
+
+    # -- filter dists --
+    dists = th.gather(dists,1,args)
+
+    # -- filter inds --
+    inds_r = []
+    for i in range(3):
+        # print(i,inds[...,i].shape)
+        inds_r.append(th.gather(inds[...,i],1,args))
+    inds_r = th.stack(inds_r)
+
+    # -- shape --
+
+    return dists,inds
+
+def get_search_offests(qvid,kvid,flows,k,ps,ws,stride1,nheads):
+
+    # -- info --
+    # print("qvid.shape: ",qvid.shape)
+    # print("kvid.shape: ",kvid.shape)
+    b,clipsize,nftrs,H,W = qvid.shape
+    # fflow = th.stack(fflow)
+    # print("fflow.shape: ",fflow.shape)
+    # bflow = th.zeros_like(fflow)
+    # print("bflow.shape: ",bflow.shape)
+
+    # -- create offset for optical flow --
+    # ivid = th.inf * th.ones_like(qvid[:,:1])
+    # qvid = th.stack([ivid,qvid],1)
+    # kvid = th.stack([kvid,ivid],1)
+    # zflow = th.zeros_like(fflow[0])
+
+    # -- search order to match rvrt --
+    qorder = [0,1,1,0] # frames [0,1,1,0]
+    korder = [0,1,0,1] # frames [2,3,2,3]
+    forder = [[0,0],[0,1],[1,0],[1,1]]
+    # from einops import rearrange
+
+    # -- grid for normalize --
+    from einops import rearrange
+    device = qvid.device
+    dtype = qvid.dtype
+    grid_y, grid_x = torch.meshgrid(torch.arange(0, H, dtype=dtype, device=device),
+                                    torch.arange(0, W, dtype=dtype, device=device))
+    grid = torch.stack((grid_y, grid_x), 2).float()  # W(x), H(y), 2
+    grid = rearrange(grid,'H W two -> two H W').requires_grad_(False)
+
+    # -- searching --
+    import stnls
+    dist_type = "l2"
+    search = stnls.search.init({"k":-1,"ps":ps,"ws":ws,
+                                "stride0":1,"stride1":stride1,
+                                "nheads":nheads,"dist_type":dist_type,
+                                "itype_fwd":"float","itype_bwd":"float",
+                                "search_name":"paired","anchor_self":False,
+                                "full_ws":False})
+    # search = stnls.search.init({"k":-1,"ps":ps,"ws":ws,"wt":1,
+    #                             "stride0":1,"stride1":stride1,
+    #                             "nheads":nheads,"dist_type":dist_type,
+    #                             "itype_fwd":"float","itype_bwd":"float"})
+
+    # vid = th.cat([qvid,kvid],1)
+    # inds = []
+    # dists,inds = [],[]
+    # zvid = th.zeros_like(qvid[:,[0]])
+    # if dist_type == "prod":
+    #     # zvid = th.zeros_like(qvid[:,[0]])
+    #     zvid = th.inf*th.ones_like(qvid[:,[0]])
+    # else:
+    #     zvid = th.inf*th.ones_like(qvid[:,[0]])
+    # zflow = th.zeros_like(flows[0][:,[0]])
+    # bflow = th.zeros_like(flows[0])
+    B = qvid.shape[0]
+    qvid_n = th.cat([qvid[:,qi] for qi in qorder])
+    kvid_n = th.cat([kvid[:,ki] for ki in korder])
+    # print("flows.shape: ",len(flows),flows[0].shape)
+    fflow_n = th.cat([flows[fi[0]][:,fi[1]] for fi in forder])[:,None]
+    # print(qvid_n.shape,kvid_n.shape,fflow_n.shape)
+    dists,inds = search(qvid_n,kvid_n,fflow_n)
+    dists,inds = stnls.nn.topk(dists,inds,k,dim=3,anchor=False,
+                               descending=dist_type=="prod",unique=False)
+    # print(inds.shape,grid.shape)
+    inds = rearrange(inds,'b HD (H W) k two -> b (HD k) two H W',H=H,W=W)
+    inds = inds - grid[None,None,]
+    # print(inds.shape,fflow_n.shape)
+    inds = inds - fflow_n.flip(-3).detach()
+    inds = rearrange(inds,'(b ngroups) ... -> ngroups b ...',b=B)
+
+
+    # for n in range(4):
+
+    #     # -- prepare data --
+    #     qvid_n = qvid[:,qorder[n]]
+    #     kvid_n = kvid[:,korder[n]]
+    #     fflow_n = flows[forder[n][0]][:,forder[n][1]]
+    #     # fflow_n = th.zeros_like(fflow_n)
+    #     # qvid_n = th.cat([qvid_n[:,None],zvid],1)
+    #     # kvid_n = th.cat([-zvid,kvid_n[:,None]],1)
+    #     # fflow_n = th.cat([fflow_n[:,None],zflow],1)
+
+    #     # -- run search --
+    #     # print(qvid_n.shape,kvid_n.shape)
+    #     # dists_n,inds_n = search(qvid_n,kvid_n,fflow_n,bflow)
+    #     # dists_n = dists_n[:,:,:H*W]
+    #     # inds_n = inds_n[:,:,:H*W,1:]
+    #     # print(qvid_n.shape,kvid_n.shape,nheads)
+    #     dists_n,inds_n = search(qvid_n,kvid_n,fflow_n)#,bflow)
+    #     # print("inds_n.shape: ",inds_n.shape)
+    #     # for i in range(12):
+    #     #     print(dists_n[:,i,:H*W])
+    #     #     print(inds_n[:,i,...,0])
+    #     # print(dists_n[0,0,-1])
+    #     # print(inds_n[0,0,-1])
+    #     # exit()
+    #     # print(inds_n[0,:,:5])
+
+    #     dists_nf,inds_nf = dists_n,inds_n
+    #     dists_n,inds_n = stnls.nn.topk(dists_n,inds_n,k,dim=3,anchor=False,
+    #                                    descending=dist_type=="prod",unique=False)
+    #     # print(inds_n.shape)
+    #     # for i in range(12):
+    #     #     print(dists_n[0,i])
+    #     #     print(inds_n[0,i,:,0])
+    #     #     for k in range(9):
+    #     #         args = th.where(th.abs(inds_n[0,i,:,k,0]-1.)>1e-10)[0]
+    #     #         print(args)
+    #     #         print(dists_n[0,i,:,k][args])
+    #     #         print(inds_n[0,i,:,k,0][args],
+    #     #               inds_n[0,i,:,k,1][args],
+    #     #               inds_n[0,i,:,k,2][args])
+    #     #         if len(args) > 0:
+    #     #             print(dists_n[0,i,args[0],:])
+    #     #             print(inds_n[0,i,args[0],:,0],
+    #     #                   inds_n[0,i,args[0],:,1],
+    #     #                   inds_n[0,i,args[0],:,2])
+    #     #             print(dists_nf[0,i,args[0],:])
+    #     #             print(inds_nf[0,i,args[0],:,0],
+    #     #                   inds_nf[0,i,args[0],:,1],
+    #     #                   inds_nf[0,i,args[0],:,2])
+
+    #     #     assert(th.all(th.abs(inds_n[:,i,...,0]-1.)<1e-10).item())
+
+    #     # if n == 0:
+    #     #     inds_p = rearrange(inds_n,'b HD (H W) k two -> b HD k H W two',H=H,W=W)
+    #     #     print(inds_p[0,0,:,31,31])
+
+    #     # -- reshape to normalize --
+    #     inds_n = rearrange(inds_n,'b HD (H W) k two -> b (HD k) two H W',H=H,W=W)
+    #     # print(inds_n[0,0,:,-5:,-5:])
+
+    #     # -- normalize to offsets --
+    #     # print(inds_n.shape,grid.shape)
+    #     inds_n = inds_n - grid[None,None,]
+    #     # print("inds_n.min(),inds_n.max(): ",inds_n.min(),inds_n.max())
+    #     # print(inds_n[0,9,:,-5:,-5:])
+    #     # args = th.where(inds_n.abs() > 5)
+    #     # print(args)
+    #     # exit()
+    #     inds_n = inds_n - fflow_n.flip(-3).detach()
+    #     # inds_n = inds_n - fflow_n[:,[0]].flip(-3)
+
+    #     # if n == 0:
+    #     #     dists_p = rearrange(dists_n,'b HD (H W) k -> b HD k H W',H=H,W=W)
+    #     #     inds_p = rearrange(inds_n,'b (HD k) two H W -> b HD k H W two',k=9)
+    #     #     print("inds_p.shape: ",inds_p.shape)
+    #     #     print("dists_p.shape: ",dists_p.shape)
+    #     #     print(dists_p[0,0,:3,31,31])
+    #     #     print(inds_p[0,0,:3,31,31])
+
+    #     # -- info --
+    #     # print(inds_n[...,0].min(),inds_n[...,0].mean(),inds_n[...,0].max())
+    #     # print(inds_n[...,1].min(),inds_n[...,1].mean(),inds_n[...,1].max())
+
+    #     # -- append --
+    #     inds.append(inds_n)
+
+    # -- reshape --
+    # inds = th.stack(inds)
+
+    # -- extract --
+    # print(inds.shape)
+    shape_str = "(clipinfo) b HDk two H W -> "
+    shape_str += "b clipinfo (HDk two) H W"
+    inds = rearrange(inds,shape_str,H=H,W=W)
+
+    # -- unpack for readability --
+    # print(inds[0,0,:18,32,32].reshape(9,2))
+    # ra = th.rand(1).item()
+    # inds[0,0,:18,32,32] = ra
+    # print(ra)
+    offset1 = th.stack([inds[:,0],inds[:,1]],1)
+    offset2 = th.stack([inds[:,2],inds[:,3]],1)
+
+    # offset1 = th.stack([inds[:,0],inds[:,3]],1)
+    # offset2 = th.stack([inds[:,1],inds[:,2]],1)
+
+    # offset1 = th.stack([inds[:,0],inds[:,1]],1)
+    # offset2 = th.stack([inds[:,3],inds[:,2]],1)
+
+    return offset1,offset2
+
+
 class GuidedDeformAttnPack(DeformAttnPack):
     """Guided deformable attention module.
 
@@ -213,6 +425,12 @@ class GuidedDeformAttnPack(DeformAttnPack):
         self.max_residue_magnitude = kwargs.pop('max_residue_magnitude', 10)
         self.offset_type = kwargs.pop('offset_type', "default")
         self.fixed_offset_max = kwargs.pop('fixed_offset_max', 2.5)
+        self.offset_ps = kwargs.pop('offset_ps', 1)
+        self.offset_ws = kwargs.pop('offset_ws', 7)
+        self.offset_stride1 = kwargs.pop('offset_stride1', 0.5)
+        print(self.offset_type,self.offset_ws,self.offset_stride1)
+        # self.offset_ws = kwargs.pop('offset_ws', 21)
+        # self.offset_stride1 = kwargs.pop('offset_stride1', 0.05)
 
         super(GuidedDeformAttnPack, self).__init__(*args, **kwargs)
 
@@ -231,6 +449,7 @@ class GuidedDeformAttnPack(DeformAttnPack):
             nn.Conv3d(64, self.clip_size * self.deformable_groups * self.attn_size * 2, kernel_size=(1, 1, 1),
                       padding=(0, 0, 0)),
         )
+        self.conv_offset = None if self.offset_type != "default" else self.conv_offset
         self.init_offset()
 
         # proj to a higher dimension can slightly improve the performance
@@ -252,18 +471,41 @@ class GuidedDeformAttnPack(DeformAttnPack):
                                  Rearrange('n d h w c -> n d c h w'))
 
         # -- create shell for hooks --
+        self.flow_shell = nn.Identity()
+        self.q_shell = nn.Identity()
+        self.k_shell = nn.Identity()
         self.o1_offset_shell = nn.Identity()
         self.o2_offset_shell = nn.Identity()
 
     def init_offset(self):
-        if hasattr(self, 'conv_offset'):
+        if hasattr(self, 'conv_offset') and not(self.conv_offset is None):
             self.conv_offset[-1].weight.data.zero_()
             self.conv_offset[-1].bias.data.zero_()
 
     def forward(self, q, k, v, v_prop_warped, flows, return_updateflow):
+        # print(flows[0].shape)
+
+        # -- projection --
+        b, t, c, h, w = q.shape
+        proj_q = self.proj_q(q)
+        proj_k = self.proj_k(k)
+        proj_v = self.proj_v(v)
+
+        # print("proj_q.shape: ",proj_q.shape,"proj_k.shape: ",proj_k.shape)
+        kv = torch.cat([proj_k, proj_v], 2)
+
+        # -- tmp DELETE ME! --
+        # proj_q = th.ones_like(proj_q)
+        # proj_k = th.zeros_like(proj_k)
+        # flows[0] = th.zeros_like(flows[0])
+        # flows[1] = th.zeros_like(flows[1])
+        # print("DELETE ME!.")
+
+        # -- offsets --
         if self.offset_type == "default":
             offset1, offset2 = torch.chunk(self.max_residue_magnitude * torch.tanh(
-                self.conv_offset(torch.cat([q] + v_prop_warped + flows, 2).transpose(1, 2)).transpose(1, 2)), 2, dim=2)
+                self.conv_offset(torch.cat([q] + v_prop_warped + flows, 2)\
+                                 .transpose(1, 2)).transpose(1, 2)), 2, dim=2)
             # offset1 = offset1 + flows[0].flip(2).repeat(1, 1, offset1.size(2) // 2, 1, 1)
             # offset2 = offset2 + flows[1].flip(2).repeat(1, 1, offset2.size(2) // 2, 1, 1)
         elif self.offset_type == "fixed":
@@ -271,6 +513,13 @@ class GuidedDeformAttnPack(DeformAttnPack):
                                                 self.deformable_groups,
                                                 self.fixed_offset_max,
                                                 q.shape,q.device)
+        elif self.offset_type == "search":
+            K = self.attn_size
+            nheads = self.deformable_groups
+            # strangely the "value" is the "key" here.
+            offset1,offset2 = get_search_offests(proj_q,proj_k,flows,K,
+                                                 self.offset_ps,self.offset_ws,
+                                                 self.offset_stride1,nheads)
         else:
             offset1 = self.max_residue_magnitude * torch.randn_like(offset1).clamp(-1,1)
             offset2 = self.max_residue_magnitude * torch.randn_like(offset1).clamp(-1,1)
@@ -279,29 +528,35 @@ class GuidedDeformAttnPack(DeformAttnPack):
         # print(self.max_residue_magnitude)
 
         # -- added for hooks --
+        q = self.q_shell(proj_q)
+        k = self.k_shell(proj_k)
+        flows = self.flow_shell(flows)
         offset1 = self.o1_offset_shell(offset1)
         offset2 = self.o2_offset_shell(offset2)
+        # print(offset1.shape,q.shape,flows[0].shape)
 
         # -- add optical flow --
-        if self.offset_type in ["default","fixed"]:
+        if self.offset_type in ["default","fixed","search"]:
             offset1 = offset1 + flows[0].flip(2).repeat(1, 1, offset1.size(2) // 2, 1, 1)
             offset2 = offset2 + flows[1].flip(2).repeat(1, 1, offset2.size(2) // 2, 1, 1)
 
         # -- cat --
         offset = torch.cat([offset1, offset2], dim=2).flatten(0, 1)
-        # print(offset.shape,self.clip_size,self.deformable_groups,self.attn_size)
+        # print(offset.shape,self.clip_size,self.deformable_groups,self.attn_size,
+        #       flows[0].shape)
         # offset1 = offset1*0.
         # offset2 = offset2*0.
         # offset = offset * 0. # TODO: DELETE ME; testing only.
 
+        # -- deform --
         b, t, c, h, w = offset1.shape
-        q = self.proj_q(q).view(b * t, 1, self.proj_channels, h, w)
-        kv = torch.cat([self.proj_k(k), self.proj_v(v)], 2)
-        v = deform_attn(q, kv, offset, self.kernel_h, self.kernel_w, self.stride,
+        # q = self.proj_q(q).view(b * t, 1, self.proj_channels, h, w)
+        proj_q = proj_q.view(b * t, 1, self.proj_channels, h, w)
+        # kv = torch.cat([self.proj_k(k), self.proj_v(v)], 2)
+        v = deform_attn(proj_q, kv, offset, self.kernel_h, self.kernel_w, self.stride,
                         self.padding, self.dilation,
                         self.attention_heads, self.deformable_groups,
-                        self.clip_size).view(b, t, self.proj_channels, h,
-                                                                                           w)
+                        self.clip_size).view(b, t, self.proj_channels, h, w)
         v = self.proj(v)
         v = v + self.mlp(v)
 
@@ -850,6 +1105,8 @@ class RVRT(nn.Module):
                  cpu_cache_length=100,
                  offset_type="default",
                  fixed_offset_max=2.5,
+                 offset_ws=3,
+                 offset_ps=1,offset_stride1=.5,
                  ):
 
         super().__init__()
@@ -926,7 +1183,10 @@ class RVRT(nn.Module):
                                                              clip_size=clip_size,
                                                              max_residue_magnitude=max_residue_magnitude,
                                                              offset_type=offset_type,
-                                                             fixed_offset_max=fixed_offset_max)
+                                                             fixed_offset_max=fixed_offset_max,
+                                                             offset_ws=offset_ws,
+                                                             offset_ps=offset_ps,
+                                                             offset_stride1=offset_stride1)
 
             # feature propagation
             self.backbone[module] = RSTBWithInputConv(
@@ -1190,7 +1450,15 @@ class RVRT(nn.Module):
         Returns:
             Tensor: Output HR sequence with shape (n, t, c, 4h, 4w).
         """
+        # -- optionally pad if testing --
+        d_old = lqs.size(1)
+        self.use_input_pad = True
+        if self.use_input_pad:
+            d_pad = d_old % 2
+            lqs = torch.cat([lqs, torch.flip(lqs[:, -d_pad:, ...], [1])], 1) \
+                if d_pad else lqs
 
+        # -- unpack --
         n, t, _, h, w = lqs.size()
 
         # whether to cache the features in CPU
@@ -1240,4 +1508,10 @@ class RVRT(nn.Module):
                 feats = self.propagate(feats, flows, module_name, updated_flows)
 
         # reconstruction
-        return self.upsample(lqs[:, :, :3, :, :], feats)
+        rec = self.upsample(lqs[:, :, :3, :, :], feats)
+
+        # -- optionally slice --
+        if self.use_input_pad:
+            rec = rec[:, :d_old, :, :, :]
+
+        return rec

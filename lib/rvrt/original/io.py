@@ -22,7 +22,9 @@ def load_model(cfg):
                    "imodel":{"task":"denoising","spynet_path":None,
                              "offset_type":"default",
                              "fixed_offset_max":2.5,
-                             "attention_window":[3,3]}}
+                             "attention_window":[3,3],
+                             "offset_ws":3,"offset_stride1":0.5,
+                             "offset_ps":1}}
     cfgs = econfig.extract_dict_of_pairs(cfg,local_pairs,restrict=True)
     cfg = dcat(cfg,econfig.flatten(cfgs)) # update cfg
     if econfig.is_init: return
@@ -111,7 +113,9 @@ def get_model(cfg):
                     attention_heads=12, attention_window=cfg.attention_window,
                     nonblind_denoising=True, cpu_cache_length=100,
                     spynet_path=spynet_path,offset_type=cfg.offset_type,
-                    fixed_offset_max=cfg.fixed_offset_max)
+                    fixed_offset_max=cfg.fixed_offset_max,
+                    offset_ws=cfg.offset_ws,offset_ps=cfg.offset_ps,
+                    offset_stride1=cfg.offset_stride1)
         datasets = ['Set8', 'DAVIS-test']
         args.scale = 1
         args.window_size = [2,8,8]
