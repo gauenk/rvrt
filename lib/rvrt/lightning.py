@@ -335,7 +335,9 @@ class LitModel(pl.LightningModule):
         fill = self.forward(tofill,flows)
 
         # -- report loss --
-        loss = th.mean((clean - fill)**2)
+        # loss = th.mean((clean - fill)**2)
+        eps = 1e-3
+        loss = th.sqrt(th.mean((clean - fill)**2) + eps**2)
         return fill.detach(),loss
 
     def training_step_i(self, batch, start, stop):
@@ -359,7 +361,9 @@ class LitModel(pl.LightningModule):
         deno = self.forward(noisy,flows)
 
         # -- report loss --
-        loss = th.mean((clean - deno)**2)
+        eps = 1e-3
+        loss = th.sqrt(th.mean((clean - deno)**2) + eps**2)
+        # loss = th.mean((clean - deno)**2)
 
         # -- forward fill --
         fill_f = None
