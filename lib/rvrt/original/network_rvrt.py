@@ -216,21 +216,23 @@ class GuidedDeformAttnPack(DeformAttnPack):
 
         super(GuidedDeformAttnPack, self).__init__(*args, **kwargs)
 
-        self.conv_offset = nn.Sequential(
-            nn.Conv3d(self.in_channels * (1 + self.clip_size) + self.clip_size * 2, 64, kernel_size=(1, 1, 1),
-                      padding=(0, 0, 0)),
-            nn.LeakyReLU(negative_slope=0.1, inplace=True),
-            nn.Conv3d(64, 64, kernel_size=(1, 3, 3), padding=(0, 1, 1)),
-            nn.LeakyReLU(negative_slope=0.1, inplace=True),
-            nn.Conv3d(64, 64, kernel_size=(1, 3, 3), padding=(0, 1, 1)),
-            nn.LeakyReLU(negative_slope=0.1, inplace=True),
-            nn.Conv3d(64, 64, kernel_size=(1, 3, 3), padding=(0, 1, 1)),
-            nn.LeakyReLU(negative_slope=0.1, inplace=True),
-            nn.Conv3d(64, 64, kernel_size=(1, 3, 3), padding=(0, 1, 1)),
-            nn.LeakyReLU(negative_slope=0.1, inplace=True),
-            nn.Conv3d(64, self.clip_size * self.deformable_groups * self.attn_size * 2, kernel_size=(1, 1, 1),
-                      padding=(0, 0, 0)),
-        )
+        self.conv_offset = None
+        if self.offset_type == "default":
+            self.conv_offset = nn.Sequential(
+                nn.Conv3d(self.in_channels * (1 + self.clip_size) + self.clip_size * 2, 64, kernel_size=(1, 1, 1),
+                          padding=(0, 0, 0)),
+                nn.LeakyReLU(negative_slope=0.1, inplace=True),
+                nn.Conv3d(64, 64, kernel_size=(1, 3, 3), padding=(0, 1, 1)),
+                nn.LeakyReLU(negative_slope=0.1, inplace=True),
+                nn.Conv3d(64, 64, kernel_size=(1, 3, 3), padding=(0, 1, 1)),
+                nn.LeakyReLU(negative_slope=0.1, inplace=True),
+                nn.Conv3d(64, 64, kernel_size=(1, 3, 3), padding=(0, 1, 1)),
+                nn.LeakyReLU(negative_slope=0.1, inplace=True),
+                nn.Conv3d(64, 64, kernel_size=(1, 3, 3), padding=(0, 1, 1)),
+                nn.LeakyReLU(negative_slope=0.1, inplace=True),
+                nn.Conv3d(64, self.clip_size * self.deformable_groups * self.attn_size * 2, kernel_size=(1, 1, 1),
+                          padding=(0, 0, 0)),
+            )
         self.init_offset()
 
         # proj to a higher dimension can slightly improve the performance
@@ -256,6 +258,7 @@ class GuidedDeformAttnPack(DeformAttnPack):
         self.o2_offset_shell = nn.Identity()
 
     def init_offset(self):
+        if not(self.offset_type == "default"): return
         if hasattr(self, 'conv_offset'):
             self.conv_offset[-1].weight.data.zero_()
             self.conv_offset[-1].bias.data.zero_()
@@ -1191,6 +1194,14 @@ class RVRT(nn.Module):
             Tensor: Output HR sequence with shape (n, t, c, 4h, 4w).
         """
 
+        # -- optionally pad if testing --
+        d_old = lqs.size(1)
+        self.use_input_pad = True
+        if self.use_input_pad:
+            d_pad = d_old % 2
+            lqs = torch.cat([lqs, torch.flip(lqs[:, -d_pad:, ...], [1])], 1)                if d_pad else lqs       
+
+        # -- unpack --
         n, t, _, h, w = lqs.size()
 
         # whether to cache the features in CPU
@@ -1240,4 +1251,8 @@ class RVRT(nn.Module):
                 feats = self.propagate(feats, flows, module_name, updated_flows)
 
         # reconstruction
-        return self.upsample(lqs[:, :, :3, :, :], feats)
+        rec = self.upsample(lqs[:, :, :3, :, :], feats)
+        if self.use_input_pad:
+            rec = rec[:,:d_old]
+
+        return rec
