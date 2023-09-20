@@ -76,7 +76,7 @@ def get_model(cfg):
         args.window_size = [2,8,8]
         args.nonblind_denoising = False
 
-    elif task in ['002_RVRT_videosr_bi_Vimeo_14frames', '003_RVRT_videosr_bd_Vimeo_14frames']:
+    elif task in ["sr",'002_RVRT_videosr_bi_Vimeo_14frames', '003_RVRT_videosr_bd_Vimeo_14frames']:
         model = net(upscale=4, clip_size=2, img_size=[2, 64, 64], window_size=[2, 8, 8], num_blocks=[1, 2, 1],
                     depths=[2, 2, 2], embed_dims=[144, 144, 144], num_heads=[6, 6, 6],
                     inputconv_groups=[1, 1, 1, 1, 1, 1], deformable_groups=12, attention_heads=12,

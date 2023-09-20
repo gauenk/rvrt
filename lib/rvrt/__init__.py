@@ -9,7 +9,7 @@ from . import lightning
 from .original import extract_config # set input params
 from .original import extract_config as extract_model_config # set input params
 # from . import verson1
-from . import ognet
+# from . import ognet
 
 
 # -- for loading model --

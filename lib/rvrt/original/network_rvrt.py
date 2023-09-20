@@ -1457,8 +1457,9 @@ class RVRT(nn.Module):
         if self.upscale == 4:
             lqs_downsample = lqs.clone()
         else:
-            lqs_downsample = F.interpolate(lqs[:, :, :3, :, :].view(-1, 3, h, w), scale_factor=0.25, mode='bicubic')\
-                .view(n, t, 3, h // 4, w // 4)
+            lqs_downsample = F.interpolate(lqs[:, :, :3, :, :].view(-1, 3, h, w),
+                                           scale_factor=0.25, mode='bicubic')\
+                              .view(n, t, 3, h // 4, w // 4)
 
         # check whether the input is an extended sequence
         self.check_if_mirror_extended(lqs)
