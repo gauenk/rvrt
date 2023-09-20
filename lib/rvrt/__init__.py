@@ -9,6 +9,8 @@ from . import lightning
 from .original import extract_config # set input params
 from .original import extract_config as extract_model_config # set input params
 # from . import verson1
+from . import ognet
+
 
 # -- for loading model --
 from .utils.misc import optional
@@ -20,6 +22,8 @@ def load_model(cfg):
     mtype = optional(cfg,'model_type','rvrt')
     if mtype in ["rvrt","original"]:
         return original.load_model(cfg)
+    elif mtype in ["ognet"]:
+        return ognet.load_model(cfg)
     else:
         version = int(mtype.split("rvrt")[1])
         pkg_name = "rvrt.version%d"%version
