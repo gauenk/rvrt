@@ -66,7 +66,11 @@ def get_model(cfg):
         model = net(upscale=4, clip_size=2, img_size=[2, 64, 64], window_size=[2, 8, 8], num_blocks=[1, 2, 1],
                     depths=[2, 2, 2], embed_dims=[144, 144, 144], num_heads=[6, 6, 6],
                     inputconv_groups=[1, 1, 1, 1, 1, 1], deformable_groups=12, attention_heads=12,
-                    attention_window=[3, 3], cpu_cache_length=100)
+                    attention_window=[3, 3], cpu_cache_length=100,
+                    spynet_path=spynet_path,offset_type=cfg.offset_type,
+                    fixed_offset_max=cfg.fixed_offset_max,
+                    offset_ws=cfg.offset_ws,offset_ps=cfg.offset_ps,
+                    offset_stride1=cfg.offset_stride1)
         datasets = ['REDS4']
         args.scale = 4
         args.window_size = [2,8,8]
@@ -76,7 +80,11 @@ def get_model(cfg):
         model = net(upscale=4, clip_size=2, img_size=[2, 64, 64], window_size=[2, 8, 8], num_blocks=[1, 2, 1],
                     depths=[2, 2, 2], embed_dims=[144, 144, 144], num_heads=[6, 6, 6],
                     inputconv_groups=[1, 1, 1, 1, 1, 1], deformable_groups=12, attention_heads=12,
-                    attention_window=[3, 3], cpu_cache_length=100)
+                    attention_window=[3, 3], cpu_cache_length=100,
+                    spynet_path=spynet_path,offset_type=cfg.offset_type,
+                    fixed_offset_max=cfg.fixed_offset_max,
+                    offset_ws=cfg.offset_ws,offset_ps=cfg.offset_ps,
+                    offset_stride1=cfg.offset_stride1)
         datasets = ['Vid4'] # 'Vimeo'. Vimeo dataset is too large. Please refer to #training to download it.
         args.scale = 4
         args.window_size = [2,8,8]
@@ -86,24 +94,31 @@ def get_model(cfg):
         model = net(upscale=1, clip_size=2, img_size=[2, 64, 64], window_size=[2, 8, 8], num_blocks=[1, 2, 1],
                     depths=[2, 2, 2], embed_dims=[192, 192, 192], num_heads=[6, 6, 6],
                     inputconv_groups=[1, 3, 3, 3, 3, 3], deformable_groups=12, attention_heads=12,
-                    attention_window=[3, 3], cpu_cache_length=100)
+                    attention_window=[3, 3], cpu_cache_length=100,
+                    spynet_path=spynet_path,offset_type=cfg.offset_type,
+                    fixed_offset_max=cfg.fixed_offset_max,
+                    offset_ws=cfg.offset_ws,offset_ps=cfg.offset_ps,
+                    offset_stride1=cfg.offset_stride1)
         datasets = ['DVD10']
         args.scale = 1
         args.window_size = [2,8,8]
         args.nonblind_denoising = False
 
-    elif task in ['005_RVRT_videodeblurring_GoPro_16frames']:
+    elif task in ["gopro+deblur",'005_RVRT_videodeblurring_GoPro_16frames']:
         model = net(upscale=1, clip_size=2, img_size=[2, 64, 64],
                     window_size=[2, 8, 8], num_blocks=[1, 2, 1],
                     depths=[2, 2, 2], embed_dims=[192, 192, 192], num_heads=[6, 6, 6],
                     inputconv_groups=[1, 3, 3, 3, 3, 3], deformable_groups=12,
                     attention_heads=12,
-                    attention_window=[3, 3], cpu_cache_length=100)
+                    attention_window=[3, 3], cpu_cache_length=100,
+                    spynet_path=spynet_path,offset_type=cfg.offset_type,
+                    fixed_offset_max=cfg.fixed_offset_max,
+                    offset_ws=cfg.offset_ws,offset_ps=cfg.offset_ps,
+                    offset_stride1=cfg.offset_stride1)
         datasets = ['GoPro11-part1', 'GoPro11-part2']
         args.scale = 1
         args.window_size = [2,8,8]
         args.nonblind_denoising = False
-
 
     elif task in ["denoising","denoise_davis",'008_VRT_videodenoising_DAVIS',"rgb_denoise"]:
         model = net(upscale=1, clip_size=2, img_size=[2, 64, 64],

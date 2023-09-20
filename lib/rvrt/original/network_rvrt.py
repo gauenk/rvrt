@@ -481,7 +481,6 @@ class GuidedDeformAttnPack(DeformAttnPack):
             self.conv_offset[-1].bias.data.zero_()
 
     def forward(self, q, k, v, v_prop_warped, flows, return_updateflow):
-        # print(flows[0].shape)
 
         # -- projection --
         b, t, c, h, w = q.shape
@@ -491,13 +490,6 @@ class GuidedDeformAttnPack(DeformAttnPack):
 
         # print("proj_q.shape: ",proj_q.shape,"proj_k.shape: ",proj_k.shape)
         kv = torch.cat([proj_k, proj_v], 2)
-
-        # -- tmp DELETE ME! --
-        # proj_q = th.ones_like(proj_q)
-        # proj_k = th.zeros_like(proj_k)
-        # flows[0] = th.zeros_like(flows[0])
-        # flows[1] = th.zeros_like(flows[1])
-        # print("DELETE ME!.")
 
         # -- offsets --
         if self.offset_type == "default":
@@ -526,11 +518,11 @@ class GuidedDeformAttnPack(DeformAttnPack):
         # print(self.max_residue_magnitude)
 
         # -- added for hooks --
-        q = self.q_shell(proj_q)
-        k = self.k_shell(proj_k)
-        flows = self.flow_shell(flows)
-        offset1 = self.o1_offset_shell(offset1)
-        offset2 = self.o2_offset_shell(offset2)
+        # q = self.q_shell(proj_q)
+        # k = self.k_shell(proj_k)
+        # flows = self.flow_shell(flows)
+        # offset1 = self.o1_offset_shell(offset1)
+        # offset2 = self.o2_offset_shell(offset2)
         # print(offset1.shape,q.shape,flows[0].shape)
 
         # -- add optical flow --
@@ -1450,11 +1442,11 @@ class RVRT(nn.Module):
         """
         # -- optionally pad if testing --
         d_old = lqs.size(1)
-        self.use_input_pad = True
+        self.use_input_pad = self.training
         if self.use_input_pad:
             d_pad = d_old % 2
             lqs = torch.cat([lqs, torch.flip(lqs[:, -d_pad:, ...], [1])], 1) \
-                if d_pad else lqs
+                  if d_pad else lqs
 
         # -- unpack --
         n, t, _, h, w = lqs.size()
@@ -1510,6 +1502,6 @@ class RVRT(nn.Module):
 
         # -- optionally slice --
         if self.use_input_pad:
-            rec = rec[:, :d_old, :, :, :]
+            rec = rec[:,:d_old]
 
         return rec
