@@ -291,9 +291,7 @@ def get_search_offests(qvid,kvid,flows,k,ps,ws,stride1,nheads):
     inds = inds - fflow_n.flip(-3).detach()
     inds = rearrange(inds,'(b ngroups) ... -> ngroups b ...',b=B)
 
-
     # for n in range(4):
-
     #     # -- prepare data --
     #     qvid_n = qvid[:,qorder[n]]
     #     kvid_n = kvid[:,korder[n]]
