@@ -24,7 +24,7 @@ def load_model(cfg):
                              "fixed_offset_max":2.5,
                              "attention_window":[3,3],
                              "offset_ws":3,"offset_stride1":0.5,
-                             "offset_ps":1}}
+                             "offset_ps":1,"offset_dtype":"l2"}}
     cfgs = econfig.extract_dict_of_pairs(cfg,local_pairs,restrict=True)
     cfg = dcat(cfg,econfig.flatten(cfgs)) # update cfg
     if econfig.is_init: return
@@ -70,7 +70,7 @@ def get_model(cfg):
                     spynet_path=spynet_path,offset_type=cfg.offset_type,
                     fixed_offset_max=cfg.fixed_offset_max,
                     offset_ws=cfg.offset_ws,offset_ps=cfg.offset_ps,
-                    offset_stride1=cfg.offset_stride1)
+                    offset_stride1=cfg.offset_stride1,offset_dtype=cfg.offset_dtype)
         datasets = ['REDS4']
         args.scale = 4
         args.window_size = [2,8,8]
@@ -84,7 +84,7 @@ def get_model(cfg):
                     spynet_path=spynet_path,offset_type=cfg.offset_type,
                     fixed_offset_max=cfg.fixed_offset_max,
                     offset_ws=cfg.offset_ws,offset_ps=cfg.offset_ps,
-                    offset_stride1=cfg.offset_stride1)
+                    offset_stride1=cfg.offset_stride1,offset_dtype=cfg.offset_dtype)
         datasets = ['Vid4'] # 'Vimeo'. Vimeo dataset is too large. Please refer to #training to download it.
         args.scale = 4
         args.window_size = [2,8,8]
@@ -98,7 +98,7 @@ def get_model(cfg):
                     spynet_path=spynet_path,offset_type=cfg.offset_type,
                     fixed_offset_max=cfg.fixed_offset_max,
                     offset_ws=cfg.offset_ws,offset_ps=cfg.offset_ps,
-                    offset_stride1=cfg.offset_stride1)
+                    offset_stride1=cfg.offset_stride1,offset_dtype=cfg.offset_dtype)
         datasets = ['DVD10']
         args.scale = 1
         args.window_size = [2,8,8]
@@ -114,7 +114,7 @@ def get_model(cfg):
                     spynet_path=spynet_path,offset_type=cfg.offset_type,
                     fixed_offset_max=cfg.fixed_offset_max,
                     offset_ws=cfg.offset_ws,offset_ps=cfg.offset_ps,
-                    offset_stride1=cfg.offset_stride1)
+                    offset_stride1=cfg.offset_stride1,offset_dtype=cfg.offset_dtype)
         datasets = ['GoPro11-part1', 'GoPro11-part2']
         args.scale = 1
         args.window_size = [2,8,8]
@@ -130,7 +130,7 @@ def get_model(cfg):
                     spynet_path=spynet_path,offset_type=cfg.offset_type,
                     fixed_offset_max=cfg.fixed_offset_max,
                     offset_ws=cfg.offset_ws,offset_ps=cfg.offset_ps,
-                    offset_stride1=cfg.offset_stride1)
+                    offset_stride1=cfg.offset_stride1,offset_dtype=cfg.offset_dtype)
         datasets = ['Set8', 'DAVIS-test']
         args.scale = 1
         args.window_size = [2,8,8]

@@ -218,7 +218,7 @@ def remove_time(dists,inds,t):
 
     return dists,inds
 
-def get_search_offests(qvid,kvid,flows,k,ps,ws,stride1,nheads):
+def get_search_offests(qvid,kvid,flows,k,ps,ws,stride1,dist_type,nheads):
 
     # -- info --
     # print("qvid.shape: ",qvid.shape)
@@ -252,7 +252,7 @@ def get_search_offests(qvid,kvid,flows,k,ps,ws,stride1,nheads):
 
     # -- searching --
     import stnls
-    dist_type = "l2"
+    # dist_type = "l2"
     search = stnls.search.init({"k":-1,"ps":ps,"ws":ws,
                                 "stride0":1,"stride1":stride1,
                                 "nheads":nheads,"dist_type":dist_type,
@@ -426,7 +426,8 @@ class GuidedDeformAttnPack(DeformAttnPack):
         self.offset_ps = kwargs.pop('offset_ps', 1)
         self.offset_ws = kwargs.pop('offset_ws', 7)
         self.offset_stride1 = kwargs.pop('offset_stride1', 0.5)
-        print(self.offset_type,self.offset_ws,self.offset_stride1)
+        self.offset_dtype = kwargs.pop('offset_dtype', "l2")
+        print(self.offset_type,self.offset_ws,self.offset_stride1,self.offset_dtype)
         # self.offset_ws = kwargs.pop('offset_ws', 21)
         # self.offset_stride1 = kwargs.pop('offset_stride1', 0.05)
 
@@ -509,7 +510,8 @@ class GuidedDeformAttnPack(DeformAttnPack):
             # strangely the "value" is the "key" here.
             offset1,offset2 = get_search_offests(proj_q,proj_k,flows,K,
                                                  self.offset_ps,self.offset_ws,
-                                                 self.offset_stride1,nheads)
+                                                 self.offset_stride1,
+                                                 self.offset_dtype,nheads)
         else:
             offset1 = self.max_residue_magnitude * torch.randn_like(offset1).clamp(-1,1)
             offset2 = self.max_residue_magnitude * torch.randn_like(offset1).clamp(-1,1)
@@ -1096,7 +1098,7 @@ class RVRT(nn.Module):
                  offset_type="default",
                  fixed_offset_max=2.5,
                  offset_ws=3,
-                 offset_ps=1,offset_stride1=.5,
+                 offset_ps=1,offset_stride1=.5,offset_dtype="l2",
                  ):
 
         super().__init__()
@@ -1176,7 +1178,8 @@ class RVRT(nn.Module):
                                                              fixed_offset_max=fixed_offset_max,
                                                              offset_ws=offset_ws,
                                                              offset_ps=offset_ps,
-                                                             offset_stride1=offset_stride1)
+                                                             offset_stride1=offset_stride1,
+                                                             offset_dtype=offset_dtype)
 
             # feature propagation
             self.backbone[module] = RSTBWithInputConv(
