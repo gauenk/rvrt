@@ -242,23 +242,22 @@ def get_search_offests(qvid,kvid,flows,k,ps,ws,stride1,dist_type,nheads):
     # from einops import rearrange
 
     # -- grid for normalize --
-    from einops import rearrange
-    device = qvid.device
-    dtype = qvid.dtype
-    grid_y, grid_x = torch.meshgrid(torch.arange(0, H, dtype=dtype, device=device),
-                                    torch.arange(0, W, dtype=dtype, device=device))
-    grid = torch.stack((grid_y, grid_x), 2).float()  # W(x), H(y), 2
-    grid = rearrange(grid,'H W two -> two H W').requires_grad_(False)
+    # from einops import rearrange
+    # device = qvid.device
+    # dtype = qvid.dtype
+    # grid_y, grid_x = torch.meshgrid(torch.arange(0, H, dtype=dtype, device=device),
+    #                                 torch.arange(0, W, dtype=dtype, device=device))
+    # grid = torch.stack((grid_y, grid_x), 2).float()  # W(x), H(y), 2
+    # grid = rearrange(grid,'H W two -> two H W').requires_grad_(False)
 
     # -- searching --
     import stnls
     # dist_type = "l2"
-    search = stnls.search.init({"k":-1,"ps":ps,"ws":ws,
+    search = stnls.search.init({"search_name":"paired",
+                                "k":-1,"ps":ps,"ws":ws,
                                 "stride0":1,"stride1":stride1,
                                 "nheads":nheads,"dist_type":dist_type,
-                                "itype_fwd":"float","itype_bwd":"float",
-                                "search_name":"paired","anchor_self":False,
-                                "full_ws":False})
+                                "itype":"float","full_ws":True})
     # search = stnls.search.init({"k":-1,"ps":ps,"ws":ws,"wt":1,
     #                             "stride0":1,"stride1":stride1,
     #                             "nheads":nheads,"dist_type":dist_type,
@@ -276,17 +275,33 @@ def get_search_offests(qvid,kvid,flows,k,ps,ws,stride1,dist_type,nheads):
     # zflow = th.zeros_like(flows[0][:,[0]])
     # bflow = th.zeros_like(flows[0])
     B = qvid.shape[0]
+    # print("qvid.shape: ",qvid.shape)
     qvid_n = th.cat([qvid[:,qi] for qi in qorder])
     kvid_n = th.cat([kvid[:,ki] for ki in korder])
     # print("flows.shape: ",len(flows),flows[0].shape)
     fflow_n = th.cat([flows[fi[0]][:,fi[1]] for fi in forder])[:,None]
     # print(qvid_n.shape,kvid_n.shape,fflow_n.shape)
     dists,inds = search(qvid_n,kvid_n,fflow_n)
-    dists,inds = stnls.nn.topk(dists,inds,k,dim=3,anchor=False,
-                               descending=dist_type=="prod",unique=False)
+    # print("inds.shape: ",inds.shape)
+    # print(k)
+    if k > 0 and False:
+        B,HD,T,nH,nW,_ = dists.shape
+        dim = 3
+        dists=dists.view(B,HD,T*nH*nW,-1)
+        inds=inds.view(B,HD,T*nH*nW,-1,3)
+        anchor_self = True
+        descending=dist_type=="prod"
+        dists,inds,_ = stnls.nn.topk(dists,inds,k,dim=dim,anchor=anchor_self,
+                                         descending=descending,unique=False,
+                                         return_order=True)
+        inds = rearrange(inds,'b HD (H W) k two -> b (HD k) two H W',H=H,W=W)
+    else:
+        inds = rearrange(inds,'b HD 1 H W k two -> b (HD k) two H W')
+    # dists,inds = stnls.nn.topk(dists,inds,k,dim=3,anchor=False,
+    #                            descending=dist_type=="prod",unique=False)
     # print(inds.shape,grid.shape)
-    inds = rearrange(inds,'b HD (H W) k two -> b (HD k) two H W',H=H,W=W)
-    inds = inds - grid[None,None,]
+
+    # inds = inds - grid[None,None,]
     # print(inds.shape,fflow_n.shape)
     inds = inds - fflow_n.flip(-3).detach()
     inds = rearrange(inds,'(b ngroups) ... -> ngroups b ...',b=B)
