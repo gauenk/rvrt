@@ -18,7 +18,8 @@ from collections import OrderedDict
 from torch.utils.data import DataLoader
 
 from dev_basics.trte import bench
-from models.network_rvrt import RVRT as net
+# from models.network_rvrt import RVRT as net
+from rvrt.original import net
 from utils import utils_image as util
 from main_test_rvrt import test_video
 # from data.dataset_video_test import VideoRecurrentTestDataset, VideoTestVimeo90KDataset, SingleVideoRecurrentTestDataset
@@ -29,9 +30,11 @@ def get_model(args):
 
     # define model
     if args.task == '001_RVRT_videosr_bi_REDS_30frames':
-        model = net(upscale=4, clip_size=2, img_size=[2, 64, 64], window_size=[2, 8, 8], num_blocks=[1, 2, 1],
+        model = net(upscale=4, clip_size=2, img_size=[2, 64, 64],
+                    window_size=[2, 8, 8], num_blocks=[1, 2, 1],
                     depths=[2, 2, 2], embed_dims=[144, 144, 144], num_heads=[6, 6, 6],
-                    inputconv_groups=[1, 1, 1, 1, 1, 1], deformable_groups=12, attention_heads=12,
+                    inputconv_groups=[1, 1, 1, 1, 1, 1], deformable_groups=12,
+                    attention_heads=12,
                     attention_window=[3, 3], cpu_cache_length=100)
         datasets = ['REDS4']
         args.scale = 4
@@ -72,7 +75,7 @@ def get_model(args):
 
 
     elif args.task == '006_RVRT_videodenoising_DAVIS_16frames':
-        model = net(upscale=1, clip_size=2, img_size=[2, 64, 64],
+        model = net(upscale=1, clip_size=2, img_size=[-1, 2, 11],
                     window_size=[2, 8, 8], num_blocks=[1, 2, 1],
                     depths=[2, 2, 2], embed_dims=[192, 192, 192], num_heads=[6, 6, 6],
                     inputconv_groups=[1, 3, 4, 6, 8, 4], deformable_groups=12,
@@ -129,10 +132,10 @@ def main():
         else:
             # vshape = (4,4,chnls,256,256)
             # vshape = (1,3,chnls,512,512)
-            vshape = (1,85,chnls,540,960)
+            # vshape = (1,85,chnls,540,960)
             # vshape = (1,20,chnls,256,256)
             # vshape = (1,85,chnls,540,960)
-            # vshape = (2,6,chnls,256,256)
+            vshape = (2,8,chnls,156,156)
         if _task == "sr": continue
 
         # -- view --
@@ -141,10 +144,12 @@ def main():
         model.eval()
         model = model.to(device)
 
-        # if _task != "sr":
-        #     vid = th.randn(vshape).to(device)
-        #     out = model(vid)
-        #     print(out.shape,vid.shape)
+        # print(model(
+
+        if _task != "sr":
+            vid = th.randn(vshape).to(device)
+            out = model(vid)
+            print(out.shape,vid.shape)
 
         # -- run summary --
         # res = bench.summary_loaded(model,vshape,with_flows=False)

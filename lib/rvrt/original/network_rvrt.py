@@ -128,6 +128,7 @@ class SpyNet(nn.Module):
         # print("[a] ref[0].shape: ",ref[0].shape)
         ref = [self.preprocess(ref)]
         supp = [self.preprocess(supp)]
+        # print("ref[0].shape: ",ref[0].shape)
 
         for level in range(5):
             ref.insert(0, F.avg_pool2d(input=ref[0], kernel_size=2, stride=2, count_include_pad=False))
@@ -141,7 +142,8 @@ class SpyNet(nn.Module):
         # print(flow.shape)
 
         for level in range(len(ref)):
-            upsampled_flow = F.interpolate(input=flow, scale_factor=2, mode='bilinear', align_corners=True) * 2.0
+            upsampled_flow = F.interpolate(input=flow, scale_factor=2,
+                                           mode='bilinear', align_corners=True) * 2.0
 
             if upsampled_flow.size(2) != ref[level].size(2):
                 upsampled_flow = F.pad(input=upsampled_flow, pad=[0, 0, 0, 1], mode='replicate')
@@ -442,7 +444,8 @@ class GuidedDeformAttnPack(DeformAttnPack):
         self.offset_ws = kwargs.pop('offset_ws', 7)
         self.offset_stride1 = kwargs.pop('offset_stride1', 0.5)
         self.offset_dtype = kwargs.pop('offset_dtype', "l2")
-        print(self.offset_type,self.offset_ws,self.offset_stride1,self.offset_dtype)
+        # print(self.offset_type,self.offset_ws,self.offset_stride1,self.offset_dtype)
+        # print(self.offset_type,self.offset_ws,self.offset_stride1)
         # self.offset_ws = kwargs.pop('offset_ws', 21)
         # self.offset_stride1 = kwargs.pop('offset_stride1', 0.05)
 
@@ -1321,9 +1324,15 @@ class RVRT(nn.Module):
         if self.cpu_cache:
             feat_prop = feat_prop.cuda()
 
+        # print(list(clip_idx))
+        # print(feat_prop.shape)
         last_key = list(feats)[-2]
+        fkey = list(feats.keys())
+        # print(feats[fkey[0]].shape,flows[0].shape)
+        # print("prop; ",len(clip_idx))
         for i in range(0, len(clip_idx)):
             idx_c = clip_idx[i]
+            # print(i,clip_idx[i],clip_idx)
             if i > 0:
                 if '_1' in module_name:
                     flow_n01 = flows[:, flow_idx[self.clip_size * i - 1], :, :, :]
@@ -1376,18 +1385,22 @@ class RVRT(nn.Module):
                         feat_q, feat_k, feat_prop,
                         [feat_prop_warped1, feat_prop_warped2],
                         [flow_n1, flow_n2], False)
+            # print(feat_prop.shape)
 
             if 'backward' in module_name:
                 feat = [feats[k][idx_c].flip(1) for k in feats if k not in [module_name]] + [feat_prop]
             else:
                 feat = [feats[k][idx_c] for k in feats if k not in [module_name]] + [feat_prop]
 
+
             if self.cpu_cache:
                 feat = [f.cuda() for f in feat]
-
+            # print([f.shape for f in feat])
+            # print(module_name)
             feat_prop = feat_prop + self.backbone[module_name](torch.cat(feat, dim=2))
             # print("feat_prop.shape: ",feat_prop.shape)
             feats[module_name].append(feat_prop)
+            # print(len(feats))
 
             if self.cpu_cache:
                 feats[module_name][-1] = feats[module_name][-1].cpu()
@@ -1417,6 +1430,7 @@ class RVRT(nn.Module):
         feats['forward_1'] = torch.cat(feats['forward_1'], 1)
         feats['backward_2'] = torch.cat(feats['backward_2'], 1)
         feats['forward_2'] = torch.cat(feats['forward_2'], 1)
+        # print(feats['backward_1'].shape)
         # print([(k,feats[k].shape) for k in feats])
 
         if self.cpu_cache:
@@ -1460,11 +1474,12 @@ class RVRT(nn.Module):
         """
         # -- optionally pad if testing --
         d_old = lqs.size(1)
-        self.use_input_pad = self.training
+        self.use_input_pad = not(self.training)
         if self.use_input_pad:
             d_pad = d_old % 2
             lqs = torch.cat([lqs, torch.flip(lqs[:, -d_pad:, ...], [1])], 1) \
                   if d_pad else lqs
+        # print("lqs.shape:", lqs.shape,d_old,self.clip_size)
 
         # -- unpack --
         n, t, _, h, w = lqs.size()
@@ -1502,6 +1517,7 @@ class RVRT(nn.Module):
         else:
             feats['shallow'] = list(torch.chunk(self.feat_extract(lqs), t // self.clip_size, dim=1))
             flows_forward, flows_backward = self.compute_flow(lqs_downsample)
+        # print(len(feats['shallow']),feats['shallow'][0].shape)
 
         # recurrent feature refinement
         updated_flows = {}
