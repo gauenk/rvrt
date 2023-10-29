@@ -256,10 +256,11 @@ def get_search_offests(qvid,kvid,flows,k,ps,ws,stride1,dist_type,nheads):
     import stnls
     # dist_type = "l2"
     search = stnls.search.init({"search_name":"paired",
-                                "k":-1,"ps":ps,"ws":ws,
+                                "k":k,"ps":ps,"ws":ws,
                                 "stride0":1,"stride1":stride1,
+                                "self_action":"anchor",
                                 "nheads":nheads,"dist_type":dist_type,
-                                "itype":"float","full_ws":True})
+                                "itype":"float","full_ws":False})
     # search = stnls.search.init({"k":-1,"ps":ps,"ws":ws,"wt":1,
     #                             "stride0":1,"stride1":stride1,
     #                             "nheads":nheads,"dist_type":dist_type,
@@ -290,12 +291,12 @@ def get_search_offests(qvid,kvid,flows,k,ps,ws,stride1,dist_type,nheads):
         B,HD,T,nH,nW,_ = dists.shape
         dim = 3
         dists=dists.view(B,HD,T*nH*nW,-1)
-        inds=inds.view(B,HD,T*nH*nW,-1,3)
+        inds=inds.view(B,HD,T*nH*nW,-1,2)
         anchor_self = True
         descending=dist_type=="prod"
         dists,inds,_ = stnls.nn.topk(dists,inds,k,dim=dim,anchor=anchor_self,
-                                         descending=descending,unique=False,
-                                         return_order=True)
+                                     descending=descending,unique=False,
+                                     return_order=True)
         inds = rearrange(inds,'b HD (H W) k two -> b (HD k) two H W',H=H,W=W)
     else:
         inds = rearrange(inds,'b HD 1 H W k two -> b (HD k) two H W')

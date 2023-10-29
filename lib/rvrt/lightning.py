@@ -82,11 +82,11 @@ def lit_pairs():
     pairs = {"batch_size":1,"flow":True,"flow_method":"cv2",
              "isize":None,"bw":False,"lr_init":1e-3,
              "lr_final":1e-8,"weight_decay":1e-8,
-             "nepochs":0,"task":"denoising","uuid":"",
-             "scheduler_name":"default","step_lr_size":5,
-             "step_lr_gamma":0.1,"flow_epoch":None,
-             "flow_from_end":None,"use_wandb":False,
-             "ntype":"g","rate":-1,"sigma":-1,
+             "nepochs":0,"nsteps":0,"task":"denoising",
+             "uuid":"","scheduler_name":"default",
+             "step_lr_size":5,"step_lr_gamma":0.1,
+             "flow_epoch":None,"flow_from_end":None,
+             "use_wandb":False,"ntype":"g","rate":-1,"sigma":-1,
              "sigma_min":-1,"sigma_max":-1,
              "optim_name":"adamw",
              "sgd_momentum":0.1,"sgd_dampening":0.1,
@@ -519,7 +519,9 @@ class LitModel(pl.LightningModule):
     def num_steps(self) -> int:
         """Get number of steps"""
         # Accessing _data_source is flaky and might break
-        if self.limit_train_batches > 0:
+        if self.nsteps > 0:
+            return self.nsteps
+        elif self.limit_train_batches > 0:
             dataset_size = self.limit_train_batches
             num_devices = 1
         else:
