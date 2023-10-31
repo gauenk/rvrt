@@ -261,142 +261,16 @@ def get_search_offests(qvid,kvid,flows,k,ps,ws,stride1,dist_type,nheads):
                                 "self_action":"anchor",
                                 "nheads":nheads,"dist_type":dist_type,
                                 "itype":"float","full_ws":False})
-    # search = stnls.search.init({"k":-1,"ps":ps,"ws":ws,"wt":1,
-    #                             "stride0":1,"stride1":stride1,
-    #                             "nheads":nheads,"dist_type":dist_type,
-    #                             "itype_fwd":"float","itype_bwd":"float"})
-
-    # vid = th.cat([qvid,kvid],1)
-    # inds = []
-    # dists,inds = [],[]
-    # zvid = th.zeros_like(qvid[:,[0]])
-    # if dist_type == "prod":
-    #     # zvid = th.zeros_like(qvid[:,[0]])
-    #     zvid = th.inf*th.ones_like(qvid[:,[0]])
-    # else:
-    #     zvid = th.inf*th.ones_like(qvid[:,[0]])
-    # zflow = th.zeros_like(flows[0][:,[0]])
-    # bflow = th.zeros_like(flows[0])
     B = qvid.shape[0]
-    # print("qvid.shape: ",qvid.shape)
     qvid_n = th.cat([qvid[:,qi] for qi in qorder])
     kvid_n = th.cat([kvid[:,ki] for ki in korder])
-    # print("flows.shape: ",len(flows),flows[0].shape)
     fflow_n = th.cat([flows[fi[0]][:,fi[1]] for fi in forder])[:,None]
-    # print(qvid_n.shape,kvid_n.shape,fflow_n.shape)
     dists,inds = search(qvid_n,kvid_n,fflow_n)
-    # print("inds.shape: ",inds.shape)
-    # print(k)
-    if k > 0 and False:
-        B,HD,T,nH,nW,_ = dists.shape
-        dim = 3
-        dists=dists.view(B,HD,T*nH*nW,-1)
-        inds=inds.view(B,HD,T*nH*nW,-1,2)
-        anchor_self = True
-        descending=dist_type=="prod"
-        dists,inds,_ = stnls.nn.topk(dists,inds,k,dim=dim,anchor=anchor_self,
-                                     descending=descending,unique=False,
-                                     return_order=True)
-        inds = rearrange(inds,'b HD (H W) k two -> b (HD k) two H W',H=H,W=W)
-    else:
-        inds = rearrange(inds,'b HD 1 H W k two -> b (HD k) two H W')
-    # dists,inds = stnls.nn.topk(dists,inds,k,dim=3,anchor=False,
-    #                            descending=dist_type=="prod",unique=False)
-    # print(inds.shape,grid.shape)
 
-    # inds = inds - grid[None,None,]
-    # print(inds.shape,fflow_n.shape)
+    # -- prepare inds --
+    inds = rearrange(inds,'b HD H W k two -> b (HD k) two H W')
     inds = inds - fflow_n.flip(-3).detach()
     inds = rearrange(inds,'(b ngroups) ... -> ngroups b ...',b=B)
-
-    # for n in range(4):
-    #     # -- prepare data --
-    #     qvid_n = qvid[:,qorder[n]]
-    #     kvid_n = kvid[:,korder[n]]
-    #     fflow_n = flows[forder[n][0]][:,forder[n][1]]
-    #     # fflow_n = th.zeros_like(fflow_n)
-    #     # qvid_n = th.cat([qvid_n[:,None],zvid],1)
-    #     # kvid_n = th.cat([-zvid,kvid_n[:,None]],1)
-    #     # fflow_n = th.cat([fflow_n[:,None],zflow],1)
-
-    #     # -- run search --
-    #     # print(qvid_n.shape,kvid_n.shape)
-    #     # dists_n,inds_n = search(qvid_n,kvid_n,fflow_n,bflow)
-    #     # dists_n = dists_n[:,:,:H*W]
-    #     # inds_n = inds_n[:,:,:H*W,1:]
-    #     # print(qvid_n.shape,kvid_n.shape,nheads)
-    #     dists_n,inds_n = search(qvid_n,kvid_n,fflow_n)#,bflow)
-    #     # print("inds_n.shape: ",inds_n.shape)
-    #     # for i in range(12):
-    #     #     print(dists_n[:,i,:H*W])
-    #     #     print(inds_n[:,i,...,0])
-    #     # print(dists_n[0,0,-1])
-    #     # print(inds_n[0,0,-1])
-    #     # exit()
-    #     # print(inds_n[0,:,:5])
-
-    #     dists_nf,inds_nf = dists_n,inds_n
-    #     dists_n,inds_n = stnls.nn.topk(dists_n,inds_n,k,dim=3,anchor=False,
-    #                                    descending=dist_type=="prod",unique=False)
-    #     # print(inds_n.shape)
-    #     # for i in range(12):
-    #     #     print(dists_n[0,i])
-    #     #     print(inds_n[0,i,:,0])
-    #     #     for k in range(9):
-    #     #         args = th.where(th.abs(inds_n[0,i,:,k,0]-1.)>1e-10)[0]
-    #     #         print(args)
-    #     #         print(dists_n[0,i,:,k][args])
-    #     #         print(inds_n[0,i,:,k,0][args],
-    #     #               inds_n[0,i,:,k,1][args],
-    #     #               inds_n[0,i,:,k,2][args])
-    #     #         if len(args) > 0:
-    #     #             print(dists_n[0,i,args[0],:])
-    #     #             print(inds_n[0,i,args[0],:,0],
-    #     #                   inds_n[0,i,args[0],:,1],
-    #     #                   inds_n[0,i,args[0],:,2])
-    #     #             print(dists_nf[0,i,args[0],:])
-    #     #             print(inds_nf[0,i,args[0],:,0],
-    #     #                   inds_nf[0,i,args[0],:,1],
-    #     #                   inds_nf[0,i,args[0],:,2])
-
-    #     #     assert(th.all(th.abs(inds_n[:,i,...,0]-1.)<1e-10).item())
-
-    #     # if n == 0:
-    #     #     inds_p = rearrange(inds_n,'b HD (H W) k two -> b HD k H W two',H=H,W=W)
-    #     #     print(inds_p[0,0,:,31,31])
-
-    #     # -- reshape to normalize --
-    #     inds_n = rearrange(inds_n,'b HD (H W) k two -> b (HD k) two H W',H=H,W=W)
-    #     # print(inds_n[0,0,:,-5:,-5:])
-
-    #     # -- normalize to offsets --
-    #     # print(inds_n.shape,grid.shape)
-    #     inds_n = inds_n - grid[None,None,]
-    #     # print("inds_n.min(),inds_n.max(): ",inds_n.min(),inds_n.max())
-    #     # print(inds_n[0,9,:,-5:,-5:])
-    #     # args = th.where(inds_n.abs() > 5)
-    #     # print(args)
-    #     # exit()
-    #     inds_n = inds_n - fflow_n.flip(-3).detach()
-    #     # inds_n = inds_n - fflow_n[:,[0]].flip(-3)
-
-    #     # if n == 0:
-    #     #     dists_p = rearrange(dists_n,'b HD (H W) k -> b HD k H W',H=H,W=W)
-    #     #     inds_p = rearrange(inds_n,'b (HD k) two H W -> b HD k H W two',k=9)
-    #     #     print("inds_p.shape: ",inds_p.shape)
-    #     #     print("dists_p.shape: ",dists_p.shape)
-    #     #     print(dists_p[0,0,:3,31,31])
-    #     #     print(inds_p[0,0,:3,31,31])
-
-    #     # -- info --
-    #     # print(inds_n[...,0].min(),inds_n[...,0].mean(),inds_n[...,0].max())
-    #     # print(inds_n[...,1].min(),inds_n[...,1].mean(),inds_n[...,1].max())
-
-    #     # -- append --
-    #     inds.append(inds_n)
-
-    # -- reshape --
-    # inds = th.stack(inds)
 
     # -- extract --
     # print(inds.shape)

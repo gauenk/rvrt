@@ -413,7 +413,6 @@ class LitModel(pl.LightningModule):
         gpu_mem.print_peak_gpu_stats(False,"val",reset=True)
         with th.no_grad():
             deno = self.forward(noisy,flows)
-        deno = deno.clamp(0,1)
         mem_res,mem_alloc = gpu_mem.print_peak_gpu_stats(False,"val",reset=True)
 
         # -- loss --
@@ -437,18 +436,39 @@ class LitModel(pl.LightningModule):
         self.log("global_step",self.global_step,on_step=False,
                  on_epoch=True,batch_size=1,sync_dist=True)
 
+        # print("val_psnr: ",val_psnr)
+        # print("val_ssim: ",val_ssim)
+
         # -- channel info --
         # for i in range(deno.shape[2]):
         #     self.log("val_deno_ch_%d_mean" % i,deno[:,:,i].mean().item())
         #     self.log("val_deno_ch_%d_min" % i,deno[:,:,i].min().item())
         #     self.log("val_deno_ch_%d_max" % i,deno[:,:,i].max().item())
+        #     self.log("val_noisy_ch_%d_mean" % i,noisy[:,:,i].mean().item())
+        #     self.log("val_noisy_ch_%d_min" % i,noisy[:,:,i].min().item())
+        #     self.log("val_noisy_ch_%d_max" % i,noisy[:,:,i].max().item())
+        #     print("val_deno_ch_%d_mean" % i,deno[:,:,i].mean().item())
+        #     print("val_deno_ch_%d_min" % i,deno[:,:,i].min().item())
+        #     print("val_deno_ch_%d_max" % i,deno[:,:,i].max().item())
+        #     print("val_noisy_ch_%d_mean" % i,noisy[:,:,i].mean().item())
+        #     print("val_noisy_ch_%d_min" % i,noisy[:,:,i].min().item())
+        #     print("val_noisy_ch_%d_max" % i,noisy[:,:,i].max().item())
+
 
         # -- image --
+        deno = deno.clamp(0,1)
         noisy = noisy.clamp(0,1)
+        if noisy.shape[2] == 4:
+            noisy = noisy[:,:,:3]
+            deno = deno[:,:,:3]
+        # from dev_basics.utils import vid_io
+        # vid_io.save_video(noisy,"output/checks","val_noisy_%d"%int(val_index))
+        # vid_io.save_video(deno,"output/checks","val_deno_%d"%int(val_index))
+
         # if not(self.logger is None):
-        #     self.logger.log_image(key="val_noisy_"+str(int(val_index)), 
-        #                           images=[noisy[0][t] for t in range(T)])
-        #     self.logger.log_image(key="val_deno_"+str(int(val_index)), 
+        #     self.logger.log_image(key="val_noisy_"+str(int(val_index)),
+        #                           images=[noisy_z[0][t] for t in range(T)])
+        #     self.logger.log_image(key="val_deno_"+str(int(val_index)),
         #                           images=[deno[0][t] for t in range(T)])
         self.gen_loger.info("val_psnr: %2.2f" % val_psnr)
         self.gen_loger.info("val_ssim: %.3f" % val_ssim)
@@ -496,9 +516,9 @@ class LitModel(pl.LightningModule):
         self.log("global_step",self.global_step,on_step=True,
                  on_epoch=False,batch_size=1)
         # if not(self.logger is None):
-        #     self.logger.log_image(key="te_noisy_"+str(int(index)), 
+        #     self.logger.log_image(key="te_noisy_"+str(int(index)),
         #                           images=[noisy[0][t].clamp(0,1) for t in range(T)])
-        #     self.logger.log_image(key="te_deno_"+str(int(index)), 
+        #     self.logger.log_image(key="te_deno_"+str(int(index)),
                                   # images=[deno[0][t].clamp(0,1) for t in range(T)])
         self.gen_loger.info("te_psnr: %2.2f" % psnr)
         self.gen_loger.info("te_ssim: %.3f" % ssim)
@@ -511,6 +531,7 @@ class LitModel(pl.LightningModule):
         results.test_mem_alloc = mem_alloc
         results.test_mem_res = mem_res
         results.test_index = index#.cpu().numpy().item()
+
         return results
 
     def uses_spynet(self):
