@@ -541,8 +541,7 @@ class LitModel(pl.LightningModule):
         """Get number of steps"""
         # Accessing _data_source is flaky and might break
         if self.nsteps > 0:
-            acc = self.trainer.accumulate_grad_batches
-            return self.nsteps/acc
+            return self.nsteps
         elif self.limit_train_batches > 0:
             dataset_size = self.limit_train_batches
             num_devices = 1
