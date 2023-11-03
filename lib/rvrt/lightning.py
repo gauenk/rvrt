@@ -173,7 +173,7 @@ class LitModel(pl.LightningModule):
         spynet_params = self.net.spynet.parameters()
         # print(list(spynet_params)[0])
         params = [{"params":base_params},
-                  {'params': spynet_params, 'lr': self.lr_init*0.75}]
+                  {'params': spynet_params, 'lr': self.lr_init*0.25}]
         return params
 
     def configure_optimizers(self):
@@ -242,10 +242,12 @@ class LitModel(pl.LightningModule):
     def training_step(self, batch, batch_idx):
 
         # -- set spynet to training --
-        if self.global_step == self.spynet_global_step:
-            if self.uses_spynet(): self.net.spynet.train()
-        if self.global_step == 0:
+        # print("global_step: ",self.global_step,self.spynet_global_step)
+        if (self.global_step == 0) or (self.global_step < self.spynet_global_step):
             if self.uses_spynet(): self.net.spynet.eval()
+        elif self.global_step == self.spynet_global_step:
+            print("Fine-tuning Spynet training.")
+            if self.uses_spynet(): self.net.spynet.train()
         # if self.global_step == self.spynet_global_step:
         #     if hasattr(self.net,"spynet"):
         #         self.net.spynet.train()
