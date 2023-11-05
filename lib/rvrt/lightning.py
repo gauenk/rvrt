@@ -246,7 +246,7 @@ class LitModel(pl.LightningModule):
         if (self.global_step == 0) or (self.global_step < self.spynet_global_step):
             if self.uses_spynet(): self.net.spynet.eval()
         elif self.global_step >= self.spynet_global_step:
-            print("Fine-tuning Spynet training.")
+            # print("Fine-tuning Spynet training.")
             if self.uses_spynet(): self.net.spynet.train()
         # if self.global_step == self.spynet_global_step:
         #     if hasattr(self.net,"spynet"):
