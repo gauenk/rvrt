@@ -273,6 +273,7 @@ class LitModel(pl.LightningModule):
             fills.append(fill_i)
             cleans.append(clean_i)
         loss = loss / nbatches
+        loss = loss / self.accumulate_grad_batches
 
         # -- view params --
         # loss.backward()
