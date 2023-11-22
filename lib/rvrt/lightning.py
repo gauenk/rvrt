@@ -94,7 +94,8 @@ def lit_pairs():
              "step_lr_multisteps":"30-50",
              "spynet_global_step":-1,"limit_train_batches":-1,"dd_in":4,
              "fill_loss":False,"fill_loss_weight":1.,"fill_loss_n":10,
-             "fill_loss_scale_min":.01,"fill_loss_scale_max":0.05}
+             "fill_loss_scale_min":.01,"fill_loss_scale_max":0.05,
+             "accumulate_grad_batches":1}
     return pairs
 
 def sim_pairs():
