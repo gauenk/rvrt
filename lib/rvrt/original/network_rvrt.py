@@ -220,37 +220,62 @@ def remove_time(dists,inds,t):
 
     return dists,inds
 
+def get_refined_offsets(qvid,kvid,flows,k,ps,ws,wr,stride1,dist_type,nheads):
+
+    # -- search order to match rvrt --
+    b,clipsize,nftrs,H,W = qvid.shape
+    qorder = [0,1,1,0] # frames [0,1,1,0]
+    korder = [0,1,0,1] # frames [2,3,2,3]
+    forder = [0,1,2,3]
+
+    # -- prepare flows --
+    shape_str = "b clipinfo (HD k two) H W ->"
+    shape_str += "clipinfo b HD H W k two"
+    in_flows = flows
+    flows = rearrange(flows,shape_str,HD=nheads,two=2)
+
+    # -- searching --
+    import stnls
+    K_rvrt = flows.shape[-2]
+    k_each = k // K_rvrt
+    assert (k_each * K_rvrt) == k,"Must be multiple of K_rvrt; the RVRT default."
+    search = stnls.search.init({"search_name":"paired_refine",
+                                "k":k_each,"ps":ps,"ws":ws,"wr":wr,
+                                "stride0":1,"stride1":stride1,
+                                "self_action":"anchor","topk_mode":"each",
+                                "nheads":nheads,"dist_type":dist_type,
+                                "itype":"float","full_ws":False})
+    B = qvid.shape[0]
+    qvid_n = th.cat([qvid[:,qi] for qi in qorder])
+    kvid_n = th.cat([kvid[:,ki] for ki in korder])
+    flows_n = th.cat([flows[fi] for fi in forder])
+    dists,inds = search(qvid_n,kvid_n,flows_n)
+
+    # -- rearrange inds --
+    inds = rearrange(inds,'b HD H W k two -> b (HD k) two H W')
+    inds = rearrange(inds,'(b ngroups) ... -> ngroups b ...',b=B)
+
+    # -- extract --
+    shape_str = "(clipinfo) b HDk two H W -> "
+    shape_str += "b clipinfo (HDk two) H W"
+    inds = rearrange(inds,shape_str,H=H,W=W)
+
+    # -- unpack for readability --
+    offset1 = th.stack([inds[:,0],inds[:,1]],1)
+    offset2 = th.stack([inds[:,2],inds[:,3]],1)
+
+    return offset1,offset2
+
 def get_search_offests(qvid,kvid,flows,k,ps,ws,stride1,dist_type,nheads):
 
     # -- info --
-    # print("qvid.shape: ",qvid.shape)
-    # print("kvid.shape: ",kvid.shape)
-    b,clipsize,nftrs,H,W = qvid.shape
-    # fflow = th.stack(fflow)
-    # print("fflow.shape: ",fflow.shape)
-    # bflow = th.zeros_like(fflow)
-    # print("bflow.shape: ",bflow.shape)
-
-    # -- create offset for optical flow --
-    # ivid = th.inf * th.ones_like(qvid[:,:1])
-    # qvid = th.stack([ivid,qvid],1)
-    # kvid = th.stack([kvid,ivid],1)
-    # zflow = th.zeros_like(fflow[0])
 
     # -- search order to match rvrt --
+    b,clipsize,nftrs,H,W = qvid.shape
     qorder = [0,1,1,0] # frames [0,1,1,0]
     korder = [0,1,0,1] # frames [2,3,2,3]
     forder = [[0,0],[0,1],[1,0],[1,1]]
     # from einops import rearrange
-
-    # -- grid for normalize --
-    # from einops import rearrange
-    # device = qvid.device
-    # dtype = qvid.dtype
-    # grid_y, grid_x = torch.meshgrid(torch.arange(0, H, dtype=dtype, device=device),
-    #                                 torch.arange(0, W, dtype=dtype, device=device))
-    # grid = torch.stack((grid_y, grid_x), 2).float()  # W(x), H(y), 2
-    # grid = rearrange(grid,'H W two -> two H W').requires_grad_(False)
 
     # -- searching --
     import stnls
@@ -279,18 +304,8 @@ def get_search_offests(qvid,kvid,flows,k,ps,ws,stride1,dist_type,nheads):
     inds = rearrange(inds,shape_str,H=H,W=W)
 
     # -- unpack for readability --
-    # print(inds[0,0,:18,32,32].reshape(9,2))
-    # ra = th.rand(1).item()
-    # inds[0,0,:18,32,32] = ra
-    # print(ra)
     offset1 = th.stack([inds[:,0],inds[:,1]],1)
     offset2 = th.stack([inds[:,2],inds[:,3]],1)
-
-    # offset1 = th.stack([inds[:,0],inds[:,3]],1)
-    # offset2 = th.stack([inds[:,1],inds[:,2]],1)
-
-    # offset1 = th.stack([inds[:,0],inds[:,1]],1)
-    # offset2 = th.stack([inds[:,3],inds[:,2]],1)
 
     return offset1,offset2
 
@@ -317,6 +332,7 @@ class GuidedDeformAttnPack(DeformAttnPack):
         self.fixed_offset_max = kwargs.pop('fixed_offset_max', 2.5)
         self.offset_ps = kwargs.pop('offset_ps', 1)
         self.offset_ws = kwargs.pop('offset_ws', 7)
+        self.offset_wr = kwargs.pop('offset_wr', 1)
         self.offset_stride1 = kwargs.pop('offset_stride1', 0.5)
         self.offset_dtype = kwargs.pop('offset_dtype', "l2")
         # print(self.offset_type,self.offset_ws,self.offset_stride1,self.offset_dtype)
@@ -341,7 +357,8 @@ class GuidedDeformAttnPack(DeformAttnPack):
             nn.Conv3d(64, self.clip_size * self.deformable_groups * self.attn_size * 2, kernel_size=(1, 1, 1),
                       padding=(0, 0, 0)),
         )
-        self.conv_offset = None if self.offset_type != "default" else self.conv_offset
+        use_offsets = self.offset_type in ["default","refine"]
+        self.conv_offset = self.conv_offset if use_offsets else None
         self.init_offset()
 
         # proj to a higher dimension can slightly improve the performance
@@ -397,6 +414,20 @@ class GuidedDeformAttnPack(DeformAttnPack):
                                                 self.deformable_groups,
                                                 self.fixed_offset_max,
                                                 q.shape,q.device)
+        elif self.offset_type == "refine":
+            offset1, offset2 = torch.chunk(self.max_residue_magnitude * torch.tanh(
+                self.conv_offset(torch.cat([q] + v_prop_warped + flows, 2)\
+                                 .transpose(1, 2)).transpose(1, 2)), 2, dim=2)
+            offset1 = offset1 + flows[0].flip(2).repeat(1, 1, offset1.size(2) // 2, 1, 1)
+            offset2 = offset2 + flows[1].flip(2).repeat(1, 1, offset2.size(2) // 2, 1, 1)
+            flows_offset = th.cat([offset1,offset2],1)
+            K,nheads = self.attn_size,self.deformable_groups
+            offset1,offset2 = get_refined_offsets(proj_q,proj_k,flows_offset,K,
+                                                  self.offset_ps,self.offset_ws,
+                                                  self.offset_wr,self.offset_stride1,
+                                                  self.offset_dtype,nheads)
+            # offset1=offset1 - flows[0].flip(2).repeat(1, 1, offset1.size(2) // 2, 1, 1)
+            # offset2=offset2 - flows[1].flip(2).repeat(1, 1, offset2.size(2) // 2, 1, 1)
         elif self.offset_type == "search":
             K = self.attn_size
             nheads = self.deformable_groups
