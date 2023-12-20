@@ -233,16 +233,21 @@ def get_refined_offsets(qvid,kvid,flows,k,ps,ws,wr,stride1,dist_type,nheads):
     shape_str += "clipinfo b HD H W k two"
     in_flows = flows
     flows = rearrange(flows,shape_str,HD=nheads,two=2)
+    # offset1 = flows[0]
+    # offset2 = flows[1]
+    # return offset1,offset2
 
     # -- searching --
     import stnls
     K_rvrt = flows.shape[-2]
     k_each = k // K_rvrt
     assert (k_each * K_rvrt) == k,"Must be multiple of K_rvrt; the RVRT default."
+    # print(k_each,ps,ws,wr)
     search = stnls.search.init({"search_name":"paired_refine",
                                 "k":k_each,"ps":ps,"ws":ws,"wr":wr,
                                 "stride0":1,"stride1":stride1,
-                                "self_action":"anchor","topk_mode":"each",
+                                # "self_action":"anchor",
+                                "topk_mode":"each",
                                 "nheads":nheads,"dist_type":dist_type,
                                 "itype":"float","full_ws":False})
     B = qvid.shape[0]
@@ -250,6 +255,9 @@ def get_refined_offsets(qvid,kvid,flows,k,ps,ws,wr,stride1,dist_type,nheads):
     kvid_n = th.cat([kvid[:,ki] for ki in korder])
     flows_n = th.cat([flows[fi] for fi in forder])
     dists,inds = search(qvid_n,kvid_n,flows_n)
+    # print(th.cat([inds[0,0,:2,:2],flows_n[0,0,:2,:2]],-1))
+    # print(flows_n.shape)
+    # inds = flows_n
 
     # -- rearrange inds --
     inds = rearrange(inds,'b HD H W k two -> b (HD k) two H W')
@@ -263,6 +271,13 @@ def get_refined_offsets(qvid,kvid,flows,k,ps,ws,wr,stride1,dist_type,nheads):
     # -- unpack for readability --
     offset1 = th.stack([inds[:,0],inds[:,1]],1)
     offset2 = th.stack([inds[:,2],inds[:,3]],1)
+
+    # print(in_flows.shape,flows.shape,offset1.shape,offset2.shape)
+    # print(th.mean((offset1[0]-in_flows[0,:2])**2))
+    # print(th.mean((offset2[0]-in_flows[0,2:])**2))
+    # offset1 = inds[0]
+    # offset2 = inds[1]
+    # exit()
 
     return offset1,offset2
 
@@ -283,7 +298,8 @@ def get_search_offests(qvid,kvid,flows,k,ps,ws,stride1,dist_type,nheads):
     search = stnls.search.init({"search_name":"paired",
                                 "k":k,"ps":ps,"ws":ws,
                                 "stride0":1,"stride1":stride1,
-                                "self_action":"anchor",
+                                # "self_action":"anchor",
+                                "self_action":None,
                                 "nheads":nheads,"dist_type":dist_type,
                                 "itype":"float","full_ws":False})
     B = qvid.shape[0]
@@ -392,6 +408,7 @@ class GuidedDeformAttnPack(DeformAttnPack):
             self.conv_offset[-1].bias.data.zero_()
 
     def forward(self, q, k, v, v_prop_warped, flows, return_updateflow):
+        # print(".")
 
         # -- projection --
         b, t, c, h, w = q.shape
@@ -426,6 +443,8 @@ class GuidedDeformAttnPack(DeformAttnPack):
                                                   self.offset_ps,self.offset_ws,
                                                   self.offset_wr,self.offset_stride1,
                                                   self.offset_dtype,nheads)
+            offset1 = offset1 - flows[0].flip(2).repeat(1, 1, offset1.size(2) // 2, 1, 1)
+            offset2 = offset2 - flows[1].flip(2).repeat(1, 1, offset2.size(2) // 2, 1, 1)
             # offset1=offset1 - flows[0].flip(2).repeat(1, 1, offset1.size(2) // 2, 1, 1)
             # offset2=offset2 - flows[1].flip(2).repeat(1, 1, offset2.size(2) // 2, 1, 1)
         elif self.offset_type == "search":
@@ -444,11 +463,11 @@ class GuidedDeformAttnPack(DeformAttnPack):
         # print(self.max_residue_magnitude)
 
         # -- added for hooks --
-        # q = self.q_shell(proj_q)
-        # k = self.k_shell(proj_k)
-        # flows = self.flow_shell(flows)
-        # offset1 = self.o1_offset_shell(offset1)
-        # offset2 = self.o2_offset_shell(offset2)
+        q = self.q_shell(proj_q)
+        k = self.k_shell(proj_k)
+        flows = self.flow_shell(flows)
+        offset1 = self.o1_offset_shell(offset1)
+        offset2 = self.o2_offset_shell(offset2)
         # print(offset1.shape,q.shape,flows[0].shape)
 
         # -- add optical flow --
@@ -477,8 +496,11 @@ class GuidedDeformAttnPack(DeformAttnPack):
         v = v + self.mlp(v)
 
         if return_updateflow:
-            return v, offset1.view(b, t, c // 2, 2, h, w).mean(2).flip(2), offset2.view(b, t, c // 2, 2, h, w).mean(
-                2).flip(2)
+            # a,b = offset1.view(b, t, c // 2, 2, h, w).mean(2).flip(2), offset2.view(b, t, c // 2, 2, h, w).mean(2).flip(2)
+            # a,b = th.zeros_like(a),th.zeros_like(a)
+            # return v,a,b
+            # return v, offset1.view(b, t, c // 2, 2, h, w).mean(2).flip(2), offset2.view(b, t, c // 2, 2, h, w).mean(2).flip(2)
+            return v, offset1.view(b, t, c // 2, 2, h, w).mean(2).flip(2), offset2.view(b, t, c // 2, 2, h, w).mean(2).flip(2)
         else:
             return v
 
@@ -1021,7 +1043,7 @@ class RVRT(nn.Module):
                  cpu_cache_length=100,
                  offset_type="default",
                  fixed_offset_max=2.5,
-                 offset_ws=3,
+                 offset_ws=3,offset_wr=1,
                  offset_ps=1,offset_stride1=.5,offset_dtype="l2",
                  ):
 
@@ -1101,6 +1123,7 @@ class RVRT(nn.Module):
                                                              offset_type=offset_type,
                                                              fixed_offset_max=fixed_offset_max,
                                                              offset_ws=offset_ws,
+                                                             offset_wr=offset_wr,
                                                              offset_ps=offset_ps,
                                                              offset_stride1=offset_stride1,
                                                              offset_dtype=offset_dtype)
@@ -1279,6 +1302,7 @@ class RVRT(nn.Module):
                                            flow_n2.permute(0, 1, 3, 4, 2).flatten(0, 1))\
                     .view(n, feat_prop.shape[1], feat_prop.shape[2], h, w)
 
+                print("module_name,i: ",module_name,i,idx_c)
                 if '_1' in module_name:
                     feat_prop, flow_n1, flow_n2 = self.deform_align[module_name](
                         feat_q, feat_k, feat_prop,

@@ -25,6 +25,7 @@ from torchvision.transforms import InterpolationMode
 
 # -- forward processing --
 from dev_basics import net_chunks
+from dev_basics.utils import vid_io
 from dev_basics.utils.misc import set_seed
 
 # -- data --
@@ -37,7 +38,7 @@ from stnls.dev.misc.viz_nls_map import get_search_grid,search_deltas,bound
 from dev_basics.configs import ExtractConfig,dcat
 econfig = ExtractConfig(__file__)
 
-def viz_offsets(dmap,offs,ws,stride1):
+def viz_offsets(dmap,offs,ws,stride1,imgH,imgW):
     O = len(offs)
     dmap /= dmap.max()
     H,W = dmap.shape[-2:]
@@ -45,8 +46,14 @@ def viz_offsets(dmap,offs,ws,stride1):
     # print("offset viz.")
     # print(offs)
     for o,_off in enumerate(offs):
+        _off0 = _off[0].item()
+        _off1 = _off[1].item()
+        # print(_off0,_off1)
+        # _off0 = bound(_off0,imgH)
+        # _off1 = bound(_off1,imgW)
+
         wo = 1.#np.exp(-(1/10.)*o/O)
-        off = [_off[0].item()/stride1 + (ws-1)//2,_off[1].item()/stride1 + (ws-1)//2]
+        off = [_off0/stride1 + (ws-1)//2,_off1/stride1 + (ws-1)//2]
         # print(off,stride1)
         off_i = [off[0],off[1]]
         # print(off_i,_off)
@@ -57,10 +64,10 @@ def viz_offsets(dmap,offs,ws,stride1):
         off_i[0] = bound(off_i[0],H)
         off_i[1] = bound(off_i[1],W)
         if off_i[0] > (H-1) or off_i[0] < 0:
-            print("skip.")
+            # print("skip.")
             continue
         if off_i[1] > (W-1) or off_i[1] < 0:
-            print("skip.")
+            # print("skip.")
             continue
         dmap[:,off_i[0],off_i[1]] = 0
         dmap[2,off_i[0],off_i[1]] = 1
@@ -118,6 +125,8 @@ class OffsetInfoHook():
         self.net = net
         self.net_stride1 = net.deform_align.forward_1.stride
         self.net_ws = net.deform_align.forward_1.stride
+        self.dist_type = net.deform_align.forward_1.offset_dtype
+        self.ps = net.deform_align.forward_1.offset_ps
 
         # -- register buffers as dicts --
         buf_list = ["o1_offset_ftrs","o2_offset_ftrs",
@@ -202,13 +211,13 @@ class OffsetInfoHook():
         # -- imports --
 
         # -- config --
-        ps = 1
-        ws = 21
-        stride1 = 0.25
+        ps = self.ps
+        ws = 41
+        stride1 = 0.5
 
         # -- get q,k --
-        i = 0
-        fmt = "deform_align.backward_1.%s_shell"
+        i = 1
+        fmt = "deform_align.forward_1.%s_shell"
         name = fmt % "q"
         qvid = self.q_ftrs[name][i]
         name = fmt % "k"
@@ -254,11 +263,12 @@ class OffsetInfoHook():
 
         # -- compute map --
         grid = get_search_grid(ws)
+        # loc0 = [0,0,0]
         loc0 = [0,25,25]
         dmaps = []
         for i in range(6):#nheads):
             dmap_i = search_deltas(qvid_n[i],kvid_n[i],fflow_n,bflow,
-                                   loc0,grid,stride1,ws,ps)
+                                   loc0,grid,stride1,ws,ps,dist_type=self.dist_type)
             # save_image(dmap_i,"dmap_%d.png" % i)
             dmaps.append(dmap_i)
         dmaps = th.stack(dmaps)
@@ -275,7 +285,7 @@ class OffsetInfoHook():
         omaps = []
         for i in range(6):#nheads):
             omap_i = viz_offsets(dmaps[i].clone(),
-                                 inds0[i,:,:,loc0[1]-1,loc0[2]-1],ws,stride1)
+                                 inds0[i,:,:,loc0[1]-1,loc0[2]-1],ws,stride1,H,W)
             omaps.append(omap_i)
             # save_image(omap_i,"omap_%d.png" % i)
         omaps = th.stack(omaps)
@@ -284,7 +294,7 @@ class OffsetInfoHook():
         # print(dmaps.shape,omaps.shape)
         # maps = th.stack([dmaps,omaps],0)
         maps = omaps[None,:]
-        maps = maps[:,[1,3]]
+        # maps = maps[:,[1,3]]
         nrow = maps.shape[0]
         maps = maps.transpose(0,1).flatten(0,1)
         grid = make_grid(maps,nrow=nrow,pad_value=1.)
@@ -340,6 +350,20 @@ def run_exp(cfg):
         vid_frames = sample['fnums'].numpy()
         # print("[%d] noisy.shape: " % index,noisy.shape)
 
+        # vid_io.save_video(noisy,"output/testing/","noisy")
+        # vid_io.save_video(clean,"output/testing/","clean")
+
+        # -- downsample if noisy sr --
+        if (cfg.task == "sr"):
+            scale = 0.25
+            H,W = noisy.shape[-2:]
+            cH,cW = int(scale*H),int(scale*W)
+            B = noisy.shape[0]
+            noisy = rearrange(noisy,'b t ... -> (b t) ...')
+            noisy = TF.resize(noisy,(cH,cW),InterpolationMode.BILINEAR)
+            noisy = rearrange(noisy,'(b t) ... -> b t ...',b=B)
+            # noisy = tvF.interpolate(noisy,scale=0.5,mode="nearest")
+
         # -- add hooks --
         hook = OffsetInfoHook(net)
 
@@ -348,6 +372,9 @@ def run_exp(cfg):
         fwd_fxn = net_chunks.chunk(chunk_cfg,net.forward)
         with th.no_grad():
             deno = fwd_fxn(noisy/imax,None)*imax
+        # vid_io.save_video(deno,"output/testing/","deno_srch")
+        # vid_io.save_video(deno,"output/testing/","deno_def")
+
 
         # -- ensure working
         psnrs = compute_psnrs(clean,deno,div=imax)
@@ -385,30 +412,46 @@ def main():
     cfg.device = "cuda:0"
     # cfg.offset_type = "fixed"
     # cfg.offset_type = "default"
-    cfg.offset_type = "search"
-    cfg.fixed_offset_max = 0.5
+    # cfg.offset_type = "search"
+    cfg.offset_type = "refine"
+    # cfg.offset_type = "search"
+    cfg.offset_dtype = "prod"
+    # cfg.offset_dtype = "l2"
+    cfg.fixed_offset_max = 2.5
     cfg.attention_window = [3,3]
     cfg.python_module = "rvrt"
-    cfg.offset_ws = 9
-    cfg.offset_stride1 = 0.5
     cfg.dname = "set8"
     cfg.nframes = 6
     cfg.frame_start = 0
     cfg.frame_end = 5
     # cfg.isize = None
-    cfg.isize = "256_256"
-    cfg.spatial_chunk_size = 256
+    cfg.isize = "512_512"
+    cfg.spatial_chunk_size = 512
     cfg.spatial_chunk_overlap = 0.25
     cfg.temporal_chunk_size = 6
     cfg.temporal_chunk_overlap = 0.25
     cfg.vid_name = "sunflower"
-    cfg.dd_in = 4
     cfg.dset = "te"
-    cfg.sigma = 50
+    cfg.sigma = 0.01
     cfg.pretrained_root = "."
     cfg.pretrained_type = "git"
-    cfg.pretrained_path = "weights/006_RVRT_videodenoising_DAVIS_16frames.pth"
     cfg.pretrained_load = True
+
+    # cfg.sigma = 60
+    # cfg.offset_wr = 1
+    # cfg.offset_ws = 3
+    # cfg.offset_stride1 = 0.5
+    # cfg.pretrained_path = "weights/006_RVRT_videodenoising_DAVIS_16frames.pth"
+    # cfg.task = "denoising"
+    # cfg.dd_in = 4
+
+    cfg.sigma = 0.01
+    cfg.offset_wr = 1
+    cfg.offset_ws = 9
+    cfg.offset_stride1 = 1.
+    cfg.pretrained_path = "weights/002_RVRT_videosr_bi_Vimeo_14frames.pth"
+    cfg.task = "sr"
+    cfg.dd_in = 3
 
     run_exp(cfg)
 
