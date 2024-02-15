@@ -95,7 +95,7 @@ def lit_pairs():
              "spynet_global_step":-1,"limit_train_batches":-1,"dd_in":4,
              "fill_loss":False,"fill_loss_weight":1.,"fill_loss_n":10,
              "fill_loss_scale_min":.01,"fill_loss_scale_max":0.05,
-             "accumulate_grad_batches":1}
+             "accumulate_grad_batches":1,"record_corr":False}
     return pairs
 
 def sim_pairs():
@@ -125,6 +125,10 @@ class LitModel(pl.LightningModule):
         self.gen_loger = logging.getLogger('lightning')
         self.gen_loger.setLevel("NOTSET")
         self.automatic_optimization=True
+        self.hooks = None
+        self.hooks_prev = None
+        # if self.record_corr:
+        #     self.hooks = hooks_for_record_corr(self.net)
 
     def forward(self,vid,flows=None):
         if flows is None:
@@ -193,7 +197,7 @@ class LitModel(pl.LightningModule):
         else:
             raise ValueError(f"Unknown optim [{self.optim_name}]")
         sched = self.configure_scheduler(optim)
-        print(sched)
+        # print(sched)
         return [optim], [sched]
 
     def configure_scheduler(self,optim):
@@ -276,11 +280,14 @@ class LitModel(pl.LightningModule):
         loss = loss / nbatches
         loss = loss / self.accumulate_grad_batches
 
-        # -- view params --
+        # -- view params [find unused params; nframes >= 6?] --
         # loss.backward()
         # for name, param in self.net.named_parameters():
         #     if param.grad is None:
         #         print(name)
+        #     else:
+        #         print("not none: ",name)
+        # exit()
 
         # -- append --
         denos = th.cat(denos)
@@ -476,6 +483,17 @@ class LitModel(pl.LightningModule):
         #                           images=[deno[0][t] for t in range(T)])
         self.gen_loger.info("val_psnr: %2.2f" % val_psnr)
         self.gen_loger.info("val_ssim: %.3f" % val_ssim)
+
+    def validation_epoch_start(self, outputs):
+        if self.record_corr is True:
+            self.hooks = CorrelationHooks(net,self.hooks_prev)
+
+    def on_validation_epoch_end(self, *args):
+        if not(self.hooks is None):
+            self.hooks_prev = self.hooks.to_dict()
+            self.hooks_prev['indices'] = self.indices
+            self.hooks.remove_hooks()
+            self.hooks = None
 
     def test_step(self, batch, batch_nb):
 

@@ -299,7 +299,7 @@ class OffsetInfoHook():
         maps = maps.transpose(0,1).flatten(0,1)
         grid = make_grid(maps,nrow=nrow,pad_value=1.)
         grid = grid[...,2:-2,2:-2] # remove exterior padding
-        save_image(nicer_image(grid),"grid.png")
+        save_image(nicer_image(grid),"grid_s.png")
 
         # print(inds0.shape)
         # print(inds0[...,32,32])
@@ -377,6 +377,7 @@ def run_exp(cfg):
 
 
         # -- ensure working
+        # print(clean.max(),imax)
         psnrs = compute_psnrs(clean,deno,div=imax)
         ssims = compute_ssims(clean,deno,div=imax)
         strred = compute_strred(clean,deno,div=imax)
@@ -412,11 +413,10 @@ def main():
     cfg.device = "cuda:0"
     # cfg.offset_type = "fixed"
     # cfg.offset_type = "default"
-    # cfg.offset_type = "search"
-    cfg.offset_type = "refine"
-    # cfg.offset_type = "search"
-    cfg.offset_dtype = "prod"
-    # cfg.offset_dtype = "l2"
+    # cfg.offset_type = "refine"
+    cfg.offset_type = "search"
+    # cfg.offset_dtype = "prod"
+    cfg.offset_dtype = "l2"
     cfg.fixed_offset_max = 2.5
     cfg.attention_window = [3,3]
     cfg.python_module = "rvrt"
@@ -437,21 +437,28 @@ def main():
     cfg.pretrained_type = "git"
     cfg.pretrained_load = True
 
-    # cfg.sigma = 60
-    # cfg.offset_wr = 1
-    # cfg.offset_ws = 3
-    # cfg.offset_stride1 = 0.5
-    # cfg.pretrained_path = "weights/006_RVRT_videodenoising_DAVIS_16frames.pth"
-    # cfg.task = "denoising"
-    # cfg.dd_in = 4
-
-    cfg.sigma = 0.01
+    cfg.sigma = 5.
     cfg.offset_wr = 1
     cfg.offset_ws = 9
-    cfg.offset_stride1 = 1.
-    cfg.pretrained_path = "weights/002_RVRT_videosr_bi_Vimeo_14frames.pth"
-    cfg.task = "sr"
-    cfg.dd_in = 3
+    cfg.offset_stride1 = 0.5
+    cfg.pretrained_path = "weights/006_RVRT_videodenoising_DAVIS_16frames.pth"
+    cfg.task = "denoising"
+
+    # cfg.sigma = 0.01
+    # cfg.sigma = 50#0.01
+    # cfg.offset_wr = 1
+    # cfg.offset_ws = 9
+    # cfg.offset_stride1 = 1.
+    # cfg.offset_type = "refine"
+    # cfg.offset_type = "search"
+    # cfg.offset_dtype = "prod"
+    # cfg.task = "sr"
+    # cfg.dd_in = 3
+    # cfg.pretrained_path = "weights/002_RVRT_videosr_bi_Vimeo_14frames.pth"
+
+    cfg.task = "deno"
+    cfg.dd_in= 4
+    cfg.pretrained_path = "weights/006_RVRT_videodenoising_DAVIS_16frames.pth"
 
     run_exp(cfg)
 

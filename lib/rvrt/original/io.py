@@ -25,7 +25,8 @@ def load_model(cfg):
                              "attention_window":[3,3],
                              "offset_ws":3,"offset_wr":1,
                              "offset_stride1":0.5,
-                             "offset_ps":1,"offset_dtype":"l2"}}
+                             "offset_ps":1,"offset_dtype":"l2",
+                             "rvrt_nheads":-1,"embed_dim":-1,"rvrt_attn_nheads":-1}}
     cfgs = econfig.extract_dict_of_pairs(cfg,local_pairs,restrict=True)
     cfg = dcat(cfg,econfig.flatten(cfgs)) # update cfg
     if econfig.is_init: return
@@ -125,7 +126,7 @@ def get_model(cfg):
         args.window_size = [2,8,8]
         args.nonblind_denoising = False
 
-    elif task in ["denoising","denoise_davis",'008_VRT_videodenoising_DAVIS',"rgb_denoise"]:
+    elif task in ["denoising","denoise_davis",'008_VRT_videodenoising_DAVIS',"rgb_denoise","deno"]:
         model = net(upscale=1, clip_size=2, img_size=[2, 64, 64],
                     window_size=[2, 8, 8], num_blocks=[1, 2, 1],
                     depths=[2, 2, 2], embed_dims=[192, 192, 192], num_heads=[6, 6, 6],
@@ -141,6 +142,26 @@ def get_model(cfg):
         args.scale = 1
         args.window_size = [2,8,8]
         args.nonblind_denoising = True
+    elif task in ["modded_deno","modded_sr"]:
+        nheads = cfg.rvrt_nheads
+        attn_nheads = cfg.rvrt_attn_nheads
+        edim = cfg.embed_dim
+        model = net(upscale=1, clip_size=2, img_size=[2, 64, 64],
+                    window_size=[2, 8, 8], num_blocks=[1, 2, 1],
+                    depths=[2, 2, 2], embed_dims=[edim,]*3, num_heads=[nheads,]*3,
+                    inputconv_groups=[1, 3, 3, 3, 3, 3], deformable_groups=12,
+                    attention_heads=attn_nheads, attention_window=cfg.attention_window,
+                    nonblind_denoising=True, cpu_cache_length=100,
+                    spynet_path=spynet_path,offset_type=cfg.offset_type,
+                    fixed_offset_max=cfg.fixed_offset_max,
+                    offset_ws=cfg.offset_ws,offset_wr=cfg.offset_wr,
+                    offset_ps=cfg.offset_ps,
+                    offset_stride1=cfg.offset_stride1,offset_dtype=cfg.offset_dtype)
+        datasets = ['Set8', 'DAVIS-test']
+        args.scale = 1
+        args.window_size = [2,8,8]
+        args.nonblind_denoising = True
+
     return model,datasets,args
 
 # def init_from_task(task,**kwargs):

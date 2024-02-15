@@ -78,9 +78,9 @@ class DeformAttnFunction(Function):
         output = q.new_empty(q.shape)
         ctx._bufs = [q.new_empty(0), q.new_empty(0), q.new_empty(0), q.new_empty(0), q.new_empty(0)]
         deform_attn_ext.deform_attn_forward(q, kv, offset, output,
-                                                      ctx._bufs[0], ctx._bufs[1], ctx._bufs[2], ctx.kernel_h, ctx.kernel_w, ctx.stride,
-                                                      ctx.stride, ctx.padding, ctx.padding, ctx.dilation, ctx.dilation,
-                                                      ctx.attention_heads, ctx.deformable_groups, ctx.clip_size)
+                                            ctx._bufs[0], ctx._bufs[1], ctx._bufs[2], ctx.kernel_h, ctx.kernel_w, ctx.stride,
+                                            ctx.stride, ctx.padding, ctx.padding, ctx.dilation, ctx.dilation,
+                                            ctx.attention_heads, ctx.deformable_groups, ctx.clip_size)
         return output
 
     @staticmethod

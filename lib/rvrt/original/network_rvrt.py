@@ -195,30 +195,30 @@ def get_fixed_offsets(ws2,ngroups,fixed_offset_max,shape,device):
     mesh = mesh.repeat((b,n,1,nH,nW))
     return mesh,mesh
 
-def remove_time(dists,inds,t):
+def remove_time(dists,flows,t):
 
     # print(dists.shape)
     dshape = dists.shape
-    ishape = inds.shape
+    ishape = flows.shape
 
     # -- filter --
     dists = dists.view(-1,1)
-    inds = inds.view(-1,3)
-    args = th.where(inds[...,0] != t)
+    flows = flows.view(-1,3)
+    args = th.where(flows[...,0] != t)
 
     # -- filter dists --
     dists = th.gather(dists,1,args)
 
-    # -- filter inds --
-    inds_r = []
+    # -- filter flows --
+    flows_r = []
     for i in range(3):
-        # print(i,inds[...,i].shape)
-        inds_r.append(th.gather(inds[...,i],1,args))
-    inds_r = th.stack(inds_r)
+        # print(i,flows[...,i].shape)
+        flows_r.append(th.gather(flows[...,i],1,args))
+    flows_r = th.stack(flows_r)
 
     # -- shape --
 
-    return dists,inds
+    return dists,flows
 
 def get_refined_offsets(qvid,kvid,flows,k,ps,ws,wr,stride1,dist_type,nheads):
 
@@ -254,29 +254,29 @@ def get_refined_offsets(qvid,kvid,flows,k,ps,ws,wr,stride1,dist_type,nheads):
     qvid_n = th.cat([qvid[:,qi] for qi in qorder])
     kvid_n = th.cat([kvid[:,ki] for ki in korder])
     flows_n = th.cat([flows[fi] for fi in forder])
-    dists,inds = search(qvid_n,kvid_n,flows_n)
-    # print(th.cat([inds[0,0,:2,:2],flows_n[0,0,:2,:2]],-1))
+    dists,flows = search(qvid_n,kvid_n,flows_n)
+    # print(th.cat([flows[0,0,:2,:2],flows_n[0,0,:2,:2]],-1))
     # print(flows_n.shape)
-    # inds = flows_n
+    # flows = flows_n
 
-    # -- rearrange inds --
-    inds = rearrange(inds,'b HD H W k two -> b (HD k) two H W')
-    inds = rearrange(inds,'(b ngroups) ... -> ngroups b ...',b=B)
+    # -- rearrange flows --
+    flows = rearrange(flows,'b HD H W k two -> b (HD k) two H W')
+    flows = rearrange(flows,'(b ngroups) ... -> ngroups b ...',b=B)
 
     # -- extract --
     shape_str = "(clipinfo) b HDk two H W -> "
     shape_str += "b clipinfo (HDk two) H W"
-    inds = rearrange(inds,shape_str,H=H,W=W)
+    flows = rearrange(flows,shape_str,H=H,W=W)
 
     # -- unpack for readability --
-    offset1 = th.stack([inds[:,0],inds[:,1]],1)
-    offset2 = th.stack([inds[:,2],inds[:,3]],1)
+    offset1 = th.stack([flows[:,0],flows[:,1]],1)
+    offset2 = th.stack([flows[:,2],flows[:,3]],1)
 
     # print(in_flows.shape,flows.shape,offset1.shape,offset2.shape)
     # print(th.mean((offset1[0]-in_flows[0,:2])**2))
     # print(th.mean((offset2[0]-in_flows[0,2:])**2))
-    # offset1 = inds[0]
-    # offset2 = inds[1]
+    # offset1 = flows[0]
+    # offset2 = flows[1]
     # exit()
 
     return offset1,offset2
@@ -295,6 +295,7 @@ def get_search_offests(qvid,kvid,flows,k,ps,ws,stride1,dist_type,nheads):
     # -- searching --
     import stnls
     # dist_type = "l2"
+    # print("k,ps,ws,dist_type: ",k,ps,ws,dist_type)
     search = stnls.search.init({"search_name":"paired",
                                 "k":k,"ps":ps,"ws":ws,
                                 "stride0":1,"stride1":stride1,
@@ -302,26 +303,28 @@ def get_search_offests(qvid,kvid,flows,k,ps,ws,stride1,dist_type,nheads):
                                 "self_action":None,
                                 "nheads":nheads,"dist_type":dist_type,
                                 "itype":"float","full_ws":False})
+    # print("nheads: ",nheads)
     B = qvid.shape[0]
     qvid_n = th.cat([qvid[:,qi] for qi in qorder])
     kvid_n = th.cat([kvid[:,ki] for ki in korder])
     fflow_n = th.cat([flows[fi[0]][:,fi[1]] for fi in forder])[:,None]
-    dists,inds = search(qvid_n,kvid_n,fflow_n)
+    # print(qvid_n.shape,kvid_n.shape,fflow_n.shape)
+    dists,flows = search(qvid_n,kvid_n,fflow_n)
 
-    # -- prepare inds --
-    inds = rearrange(inds,'b HD H W k two -> b (HD k) two H W')
-    inds = inds - fflow_n.flip(-3).detach()
-    inds = rearrange(inds,'(b ngroups) ... -> ngroups b ...',b=B)
+    # -- prepare flows --
+    flows = rearrange(flows,'b HD H W k two -> b (HD k) two H W')
+    flows = flows - fflow_n.flip(-3).detach()
+    flows = rearrange(flows,'(b ngroups) ... -> ngroups b ...',b=B)
 
     # -- extract --
-    # print(inds.shape)
+    # print(flows.shape)
     shape_str = "(clipinfo) b HDk two H W -> "
     shape_str += "b clipinfo (HDk two) H W"
-    inds = rearrange(inds,shape_str,H=H,W=W)
+    flows = rearrange(flows,shape_str,H=H,W=W)
 
     # -- unpack for readability --
-    offset1 = th.stack([inds[:,0],inds[:,1]],1)
-    offset2 = th.stack([inds[:,2],inds[:,3]],1)
+    offset1 = th.stack([flows[:,0],flows[:,1]],1)
+    offset2 = th.stack([flows[:,2],flows[:,3]],1)
 
     return offset1,offset2
 
@@ -358,6 +361,7 @@ class GuidedDeformAttnPack(DeformAttnPack):
 
         super(GuidedDeformAttnPack, self).__init__(*args, **kwargs)
 
+        # if self.offset_type in ["default","refine"]:
         self.conv_offset = nn.Sequential(
             nn.Conv3d(self.in_channels * (1 + self.clip_size) + self.clip_size * 2, 64, kernel_size=(1, 1, 1),
                       padding=(0, 0, 0)),
@@ -373,6 +377,8 @@ class GuidedDeformAttnPack(DeformAttnPack):
             nn.Conv3d(64, self.clip_size * self.deformable_groups * self.attn_size * 2, kernel_size=(1, 1, 1),
                       padding=(0, 0, 0)),
         )
+        # else:
+        #     self.conv_offset = nn.Identity()
         use_offsets = self.offset_type in ["default","refine"]
         self.conv_offset = self.conv_offset if use_offsets else None
         self.init_offset()
@@ -392,15 +398,19 @@ class GuidedDeformAttnPack(DeformAttnPack):
                                   nn.Linear(self.proj_channels, self.in_channels),
                                   Rearrange('n d h w c -> n d c h w'))
         self.mlp = nn.Sequential(Rearrange('n d c h w -> n d h w c'),
-                                 Mlp(self.in_channels, self.in_channels * 2, self.in_channels),
+                                 Mlp(self.in_channels, self.in_channels * 2,
+                                     self.in_channels),
                                  Rearrange('n d h w c -> n d c h w'))
 
         # -- create shell for hooks --
-        self.flow_shell = nn.Identity()
-        self.q_shell = nn.Identity()
-        self.k_shell = nn.Identity()
-        self.o1_offset_shell = nn.Identity()
-        self.o2_offset_shell = nn.Identity()
+        # self.flow_shell = nn.Identity()
+        # self.proj_q_shell = nn.Identity()
+        # self.proj_k_shell = nn.Identity()
+        # self.q_shell = nn.Identity()
+        # self.k_shell = nn.Identity()
+        # self.v_shell = nn.Identity()
+        # self.o1_offset_shell = nn.Identity()
+        # self.o2_offset_shell = nn.Identity()
 
     def init_offset(self):
         if hasattr(self, 'conv_offset') and not(self.conv_offset is None):
@@ -412,9 +422,15 @@ class GuidedDeformAttnPack(DeformAttnPack):
 
         # -- projection --
         b, t, c, h, w = q.shape
+        # q = self.q_shell(q)
+        # k = self.k_shell(k)
+        # v = self.v_shell(v)
         proj_q = self.proj_q(q)
         proj_k = self.proj_k(k)
         proj_v = self.proj_v(v)
+        # proj_q = self.proj_q_shell(proj_q)
+        # proj_k = self.proj_k_shell(proj_k)
+        # flows = self.flow_shell(flows)
 
         # print("proj_q.shape: ",proj_q.shape,"proj_k.shape: ",proj_k.shape)
         kv = torch.cat([proj_k, proj_v], 2)
@@ -424,8 +440,8 @@ class GuidedDeformAttnPack(DeformAttnPack):
             offset1, offset2 = torch.chunk(self.max_residue_magnitude * torch.tanh(
                 self.conv_offset(torch.cat([q] + v_prop_warped + flows, 2)\
                                  .transpose(1, 2)).transpose(1, 2)), 2, dim=2)
-            # offset1 = offset1 + flows[0].flip(2).repeat(1, 1, offset1.size(2) // 2, 1, 1)
-            # offset2 = offset2 + flows[1].flip(2).repeat(1, 1, offset2.size(2) // 2, 1, 1)
+            # offset1 = offset1 + flows[0].flip(2).repeat(1,1,offset1.size(2)//2,1,1)
+            # offset2 = offset2 + flows[1].flip(2).repeat(1,1,offset2.size(2)//2,1,1)
         elif self.offset_type == "fixed":
             offset1,offset2 = get_fixed_offsets(self.attn_size,
                                                 self.deformable_groups,
@@ -455,6 +471,10 @@ class GuidedDeformAttnPack(DeformAttnPack):
                                                  self.offset_ps,self.offset_ws,
                                                  self.offset_stride1,
                                                  self.offset_dtype,nheads)
+            # offset1,offset2 = get_search_offests(proj_q,proj_k,flows,K,
+            #                                      self.offset_ps,self.offset_ws,
+            #                                      self.offset_stride1,
+            #                                      self.offset_dtype,nheads)
         else:
             offset1 = self.max_residue_magnitude * torch.randn_like(offset1).clamp(-1,1)
             offset2 = self.max_residue_magnitude * torch.randn_like(offset1).clamp(-1,1)
@@ -463,11 +483,8 @@ class GuidedDeformAttnPack(DeformAttnPack):
         # print(self.max_residue_magnitude)
 
         # -- added for hooks --
-        q = self.q_shell(proj_q)
-        k = self.k_shell(proj_k)
-        flows = self.flow_shell(flows)
-        offset1 = self.o1_offset_shell(offset1)
-        offset2 = self.o2_offset_shell(offset2)
+        # offset1 = self.o1_offset_shell(offset1)
+        # offset2 = self.o2_offset_shell(offset2)
         # print(offset1.shape,q.shape,flows[0].shape)
 
         # -- add optical flow --
@@ -488,6 +505,9 @@ class GuidedDeformAttnPack(DeformAttnPack):
         # q = self.proj_q(q).view(b * t, 1, self.proj_channels, h, w)
         proj_q = proj_q.view(b * t, 1, self.proj_channels, h, w)
         # kv = torch.cat([self.proj_k(k), self.proj_v(v)], 2)
+        # print(proj_q.shape,kv.shape)
+        # print("batch, 1, attn_head, attn_dim, area: ",
+        #       self.attention_heads,kv.shape[2]//2,h*w)
         v = deform_attn(proj_q, kv, offset, self.kernel_h, self.kernel_w, self.stride,
                         self.padding, self.dilation,
                         self.attention_heads, self.deformable_groups,
@@ -1302,7 +1322,8 @@ class RVRT(nn.Module):
                                            flow_n2.permute(0, 1, 3, 4, 2).flatten(0, 1))\
                     .view(n, feat_prop.shape[1], feat_prop.shape[2], h, w)
 
-                print("module_name,i: ",module_name,i,idx_c)
+                # print("module_name,i: ",module_name,i,idx_c)
+                # print("module_name: ",module_name)
                 if '_1' in module_name:
                     feat_prop, flow_n1, flow_n2 = self.deform_align[module_name](
                         feat_q, feat_k, feat_prop,
@@ -1438,6 +1459,9 @@ class RVRT(nn.Module):
                 # print("i, feat.shape: ",i, feat.shape)
                 feats['shallow'].append(feat)
             flows_forward, flows_backward = self.compute_flow(lqs_downsample)
+            # from dev_basics import flow as flow_pkg
+            # flows = flow_pkg.orun(lqs_downsample,True,ftype="cv2")
+            # flows_forward, flows_backward = flows.fflow,flows.bflow
 
             lqs = lqs.cpu()
             lqs_downsample = lqs_downsample.cpu()
@@ -1448,6 +1472,10 @@ class RVRT(nn.Module):
             feats['shallow'] = list(torch.chunk(self.feat_extract(lqs), t // self.clip_size, dim=1))
             flows_forward, flows_backward = self.compute_flow(lqs_downsample)
         # print(len(feats['shallow']),feats['shallow'][0].shape)
+            # from dev_basics import flow as flow_pkg
+            # flows = flow_pkg.orun(lqs_downsample,True,ftype="cv2")
+            # flows_forward, flows_backward = flows.fflow,flows.bflow
+
 
         # recurrent feature refinement
         updated_flows = {}
